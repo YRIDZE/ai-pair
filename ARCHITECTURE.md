@@ -159,7 +159,7 @@ packages/
   vscode/     the extension: adapter, WebSocket server, panel, launcher
 ```
 
-TypeScript throughout, pnpm workspaces, bundled with esbuild. The relay uses
+TypeScript throughout, npm workspaces, bundled with esbuild. The relay uses
 the official MCP TypeScript SDK.
 
 ## Out of scope for v1

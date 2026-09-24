@@ -121,8 +121,10 @@ Rules:
   that is an interrupting event, covered by the rules above.)
 - **Timeouts.** Any blocking call returns after at most `MAX_BLOCK` (*tunable*,
   ~60 s, safely below MCP client timeouts) even if nothing has finished, with
-  `"waiting": true`. The agent simply calls `listen` to keep waiting. This
-  covers long playbacks and paused playback.
+  `"waiting": true`. Nothing is lost: the agent simply carries on as if the
+  call had returned normally, submitting its next batch with `step`, or
+  calling `listen` if it has nothing more. This covers long playbacks and
+  paused playback.
 
 ### Pause and follow mode
 
@@ -214,7 +216,8 @@ batches.
 ### `move`
 
 Moves the agent cursor. If `file` is given, switches to that file (opening it
-if needed); otherwise anchors resolve in the current file. The cursor goes to
+if needed, and creating it empty if it doesn't exist); otherwise anchors
+resolve in the current file. The cursor goes to
 the `start` or `end` of the anchor match (default: `end`, i.e. "after").
 Clears any selection. See [Anchors](#anchors).
 
@@ -289,13 +292,12 @@ type Report = {
   batches: BatchResult[]      // batches that finished since the last report, in order
   submitted?: {               // the batch submitted by this call (step only)
     id: number
-    status: "queued" | "playing" | "discarded"
-    unplayed?: Action[]       // if discarded
+    status: "queued" | "playing" | BatchStatus  // if finished, its result is in `batches`
   }
   events: Event[]             // programmer events since the last report, in order
   turn: "agent" | "user"
   cursor?: { file: string, line: number, column: number, selection?: Range }  // absent before the first move
-  waiting?: true              // returned due to MAX_BLOCK; call listen to continue
+  waiting?: true              // returned due to MAX_BLOCK; carry on as usual
 }
 
 type BatchResult = {
@@ -306,14 +308,20 @@ type BatchResult = {
     index: number
     typed: string             // for type/type_fast: exactly what made it into the buffer
   }
-  unplayed?: Action[]         // remaining actions, verbatim (the partial one excluded)
+  unplayed?: Action[]         // remaining actions, verbatim (the partial one excluded,
+                              // the failing one included)
   error?: {
     index: number
-    kind: "anchor_not_found" | "anchor_ambiguous" | "no_selection" | "not_your_turn"
+    kind: "anchor_not_found" | "anchor_ambiguous" | "no_selection" | "no_file"
+        | "not_your_turn" | "invalid_action"
+    message: string
     candidates?: { line: number, context: string }[]
   }
 }
 ```
+
+A batch interrupted before any of its actions had a visible effect is reported
+as `discarded`.
 
 A partially typed action stays in the buffer: if the programmer interrupts
 mid-word, the half word remains, and `partial.typed` says exactly what was
