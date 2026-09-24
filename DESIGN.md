@@ -42,9 +42,10 @@ Layout, top to bottom:
 
 1. **Controls and reply box.** A status line of its own (so its changing text
    never moves anything), then Pause/Resume, Interrupt, My turn / Your turn,
-   End. The reply box is slim and low-contrast until focused, so it doesn't
-   compete with the message. These sit above the message so their position
-   never changes. Speed is a setting (`aiPair.speed`).
+   End. The status line also holds the Slow / Normal / Fast toggle,
+   right-aligned so the status text never moves it. The reply box is slim and
+   low-contrast until focused, so it doesn't compete with the message. These
+   sit above the message so their position never changes.
 2. **Current message.** Large text (≈1.4× the editor font, *tunable*), high
    contrast. Its **top edge is fixed**; its height grows downward with the
    message length. A new message briefly flashes in, in sync with the cursor's
@@ -72,26 +73,47 @@ Behavior:
 
 ## Playback
 
-### Typing cadence
+### Timing
 
-| Parameter                          | Value (*tunable*)       |
-|------------------------------------|-------------------------|
-| `type` base rate                   | 15 chars/s              |
-| `type_fast` base rate              | 60 chars/s              |
-| per-character jitter               | ±30%                    |
-| pause after `,` `;` `)` `}`        | +80 ms                  |
-| pause at newline                   | +250 ms                 |
-| leading indentation                | instant                 |
+Every number lives in one place, [`timing.ts`](packages/core/src/timing.ts),
+for calibration. The `aiPair.timing` setting overrides any of them without a
+rebuild. All are milliseconds at normal speed (*tunable*).
 
-All rates are scaled by the programmer's speed setting.
+**Typing.** Quick within words, a small pause as each word starts, longer
+after punctuation, brackets and newlines, the way people actually type:
 
-Leading indentation appears instantly because that's what the programmer's own
-editor would do; watching spaces being typed is noise.
+| Moment                                               | Pause          |
+|------------------------------------------------------|----------------|
+| between characters within a word                     | 55, ±25%       |
+| extra as a word starts (non-alphanumeric → alphanumeric) | +110       |
+| extra after `,` `;` `:`                              | +90            |
+| extra after an opening `(` `[` `{`                   | +70            |
+| extra after a newline                                | +350           |
+| leading indentation                                  | instant        |
 
-### Reading pause
+`type_fast` plays the same rhythm at a quarter of the delays. Leading
+indentation appears instantly because that's what the programmer's own editor
+would do; watching spaces being typed is noise.
 
-After a `say`: `clamp(words × 180 ms, 1 s, 6 s)`, scaled by the speed setting
-(*tunable*). Enough to read most of the message, not all of it.
+**Cognitive switches.** The pause comes *after* a change, so the programmer
+can take it in before anything happens there:
+
+| After…                                           | Pause | Why                          |
+|--------------------------------------------------|-------|------------------------------|
+| a move within 15 lines in the same file          | 450   | eyes find the cursor again   |
+| a move farther, or to another file               | 900   | the view changed: re-orient  |
+| a selection appears                              | 700   | read what's about to change  |
+| a deletion                                       | 300   | register what's gone         |
+| a `point` highlight                              | 400   | find the highlighted code    |
+
+Plus a 150 ms beat *before* a move or a selection, so it doesn't look
+instantaneous.
+
+**Reading.** After a `say`: `clamp(words × 180, 1000, 6000)`. Enough to read
+most of the message, not all of it.
+
+**Speed.** The panel's Slow / Normal / Fast (0.6×, 1×, 1.6×) scales all of it
+together, immediately, even mid-typing. It's the `aiPair.speed` setting.
 
 ### Undo
 

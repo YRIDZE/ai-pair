@@ -43,21 +43,39 @@ describe("anchors", () => {
 })
 
 describe("typing", () => {
-  const cadence = { rate: 10, jitter: 0, punctuationPauseMs: 50, newlinePauseMs: 250 }
+  const cadence = { charMs: 100, jitter: 0, wordStartMs: 50, punctuationMs: 30, openBracketMs: 20, newlineMs: 250 }
+  const delays = (text: string, atLineStart = false) =>
+    planTyping(text, cadence, atLineStart, Math.random).map((c) => [c.text, c.delay])
 
-  it("inserts a newline together with the following indentation", () => {
-    const chunks = planTyping("a,\n  b", cadence, false, Math.random)
-    expect(chunks).toEqual([
-      { text: "a", delay: 100 },
-      { text: ",", delay: 100 },
-      { text: "\n  ", delay: 150 },
-      { text: "b", delay: 350 },
+  it("pauses as words start, and after punctuation and opening brackets", () => {
+    expect(delays("ab c(d, e")).toEqual([
+      ["a", 100],
+      ["b", 100],
+      [" ", 100],
+      ["c", 150],
+      ["(", 100],
+      ["d", 170],
+      [",", 100],
+      [" ", 130],
+      ["e", 150],
+    ])
+  })
+
+  it("inserts a newline together with the following indentation, then pauses", () => {
+    expect(delays("x\n  y")).toEqual([
+      ["x", 100],
+      ["\n  ", 100],
+      ["y", 400],
     ])
   })
 
   it("inserts leading indentation at once at the start of a line", () => {
-    expect(planTyping("  x", cadence, true, Math.random).map((c) => c.text)).toEqual(["  ", "x"])
-    expect(planTyping("  x", cadence, false, Math.random).map((c) => c.text)).toEqual([" ", " ", "x"])
+    expect(delays("  x", true).map(([t]) => t)).toEqual(["  ", "x"])
+    expect(delays("  x").map(([t]) => t)).toEqual([" ", " ", "x"])
+  })
+
+  it("scales every delay for type_fast", () => {
+    expect(planTyping("a b", cadence, false, Math.random, 0.5).map((c) => c.delay)).toEqual([50, 50, 75])
   })
 
   it("scales reading time with the word count, within bounds", () => {

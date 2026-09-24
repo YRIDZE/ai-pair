@@ -76,13 +76,22 @@ export class FakePanel implements PanelPort {
   }
 }
 
-/** Deterministic timing: no jitter, round numbers. */
+/** Deterministic timing: no jitter, round numbers, no pauses except before moves and selections. */
 export const testConfig: Config = {
   ...defaultConfig,
-  type: { rate: 10, jitter: 0.3, punctuationPauseMs: 0, newlinePauseMs: 0 },
-  typeFast: { rate: 100, jitter: 0.3, punctuationPauseMs: 0, newlinePauseMs: 0 },
-  reading: { msPerWord: 100, minMs: 500, maxMs: 2000 },
-  beatMs: 100,
+  timing: {
+    type: { charMs: 100, jitter: 0.25, wordStartMs: 0, punctuationMs: 0, openBracketMs: 0, newlineMs: 0 },
+    fastFactor: 0.1,
+    reading: { msPerWord: 100, minMs: 500, maxMs: 2000 },
+    beforeMoveMs: 100,
+    afterMoveNearMs: 0,
+    afterMoveFarMs: 0,
+    nearLines: 15,
+    beforeSelectMs: 100,
+    afterSelectMs: 0,
+    afterDeleteMs: 0,
+    afterPointMs: 0,
+  },
   navigatorIdleMs: 1000,
   random: () => 0.5,
 }

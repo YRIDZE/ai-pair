@@ -85,12 +85,17 @@
           "default": 1,
           "minimum": 0.25,
           "maximum": 4,
-          "description": "Playback speed multiplier for typing and reading pauses."
+          "description": "Overall playback speed: typing, pauses, and reading time. The panel's Slow / Normal / Fast set 0.6, 1, and 1.6."
         },
         "aiPair.agentName": {
           "type": "string",
           "default": "Agent",
           "description": "Name shown on the agent's cursor."
+        },
+        "aiPair.timing": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Calibration: override any playback timing, in milliseconds at normal speed. See `packages/core/src/timing.ts` for every key and its default, e.g. `{ \"afterSelectMs\": 900, \"type\": { \"wordStartMs\": 140 } }`."
         }
       }
     },

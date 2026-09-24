@@ -13,9 +13,13 @@ import { createServer } from "../src/server"
 
 const fast = {
   ...testConfig,
-  type: { ...testConfig.type, rate: 2000 },
-  reading: { msPerWord: 1, minMs: 5, maxMs: 5 },
-  beatMs: 5,
+  timing: {
+    ...testConfig.timing,
+    type: { ...testConfig.timing.type, charMs: 0.5 },
+    reading: { msPerWord: 1, minMs: 5, maxMs: 5 },
+    beforeMoveMs: 5,
+    beforeSelectMs: 5,
+  },
   navigatorIdleMs: 50,
 }
 

@@ -15,6 +15,7 @@ type FromPanel =
   | { type: "turn"; message?: string }
   | { type: "end" }
   | { type: "open"; file: string; line: number }
+  | { type: "speed"; value: number }
 
 const MAX_LOG = 400
 
@@ -25,7 +26,15 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
   /** Everything posted so far, replayed when the view is (re)created. */
   private readonly log: PanelEvent[] = []
 
-  constructor(private readonly resolvePath: (file: string) => string) {}
+  constructor(
+    private readonly resolvePath: (file: string) => string,
+    private readonly speed: { get: () => number; set: (value: number) => void },
+  ) {}
+
+  /** The speed setting changed. Not logged: only the current value matters. */
+  showSpeed(value: number): void {
+    void this.view?.webview.postMessage({ type: "speed", value })
+  }
 
   post(event: PanelEvent): void {
     this.log.push(event)
@@ -59,6 +68,10 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
     switch (m.type) {
       case "ready":
         void this.view?.webview.postMessage({ type: "replay", events: this.log })
+        this.showSpeed(this.speed.get())
+        return
+      case "speed":
+        this.speed.set(m.value)
         return
       case "reply":
         // Replying means "go on with this", so any pause ends.

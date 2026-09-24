@@ -74,7 +74,8 @@ export async function run(): Promise<void> {
   await c.start("interrupt test")
   await c.step([{ move: { file: "scratch.ts" } }, { type: alphabet }])
   const pending = c.step([{ type: "!" }])
-  await sleep(900)
+  // Past the pauses around moving into a new file (~1 s), and into the typing.
+  await sleep(1500)
   const doc = await vscode.workspace.openTextDocument(file("scratch.ts"))
   const edit = new vscode.WorkspaceEdit()
   edit.insert(doc.uri, new vscode.Position(0, 0), "// mine\n")

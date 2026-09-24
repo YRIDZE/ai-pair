@@ -1,33 +1,37 @@
-// Typing cadence and reading time. See "Playback" in DESIGN.md.
+// Typing cadence and reading time. The numbers are in timing.ts.
 
-export type Cadence = {
-  /** Characters per second. */
-  rate: number
-  /** Relative per-character jitter, e.g. 0.3 for ±30%. */
-  jitter: number
-  punctuationPauseMs: number
-  newlinePauseMs: number
-}
+import type { Cadence, Reading } from "./timing"
 
 /** A piece of text inserted in one edit, after waiting `delay` ms. */
 export type Chunk = { text: string; delay: number }
 
-const PAUSE_AFTER = new Set([",", ";", ")", "}"])
+const PUNCTUATION = new Set([",", ";", ":"])
+const OPEN_BRACKETS = new Set(["(", "[", "{"])
+const WORD = /[\p{L}\p{N}_]/u
 
 function isIndent(ch: string | undefined): boolean {
   return ch === " " || ch === "\t"
 }
 
 /**
- * Splits text into chunks: one per character, except that a newline and the
- * indentation after it are inserted together, as an editor's auto-indent would.
- * Indentation at the very start is inserted at once too, if `atLineStart`.
+ * Splits text into chunks: one per character, except that a newline and the indentation after
+ * it are inserted together, as an editor's auto-indent would. Indentation at the very start is
+ * inserted at once too, if `atLineStart`. Every delay is multiplied by `scale`.
+ *
+ * The rhythm: quick within words, a small pause as each word starts, and longer ones after
+ * punctuation, opening brackets, and newlines.
  */
-export function planTyping(text: string, cadence: Cadence, atLineStart: boolean, random: () => number): Chunk[] {
+export function planTyping(
+  text: string,
+  cadence: Cadence,
+  atLineStart: boolean,
+  random: () => number,
+  scale = 1,
+): Chunk[] {
   const chars = Array.from(text)
-  const base = 1000 / cadence.rate
   const chunks: Chunk[] = []
   let pause = 0
+  let previous: string | undefined
   let i = 0
 
   const takeIndent = (): string => {
@@ -38,24 +42,29 @@ export function planTyping(text: string, cadence: Cadence, atLineStart: boolean,
 
   if (atLineStart) {
     const indent = takeIndent()
-    if (indent) chunks.push({ text: indent, delay: 0 })
+    if (indent) {
+      chunks.push({ text: indent, delay: 0 })
+      previous = " "
+    }
   }
 
   while (i < chars.length) {
     const ch = chars[i++]!
-    const delay = base * (1 + (random() * 2 - 1) * cadence.jitter) + pause
+    const wordStart = previous !== undefined && !WORD.test(previous) && WORD.test(ch)
+    const delay = cadence.charMs * (1 + (random() * 2 - 1) * cadence.jitter) + (wordStart ? cadence.wordStartMs : 0) + pause
     if (ch === "\n") {
-      chunks.push({ text: ch + takeIndent(), delay })
-      pause = cadence.newlinePauseMs
+      const indent = takeIndent()
+      chunks.push({ text: ch + indent, delay: delay * scale })
+      pause = cadence.newlineMs
+      previous = indent ? " " : "\n"
     } else {
-      chunks.push({ text: ch, delay })
-      pause = PAUSE_AFTER.has(ch) ? cadence.punctuationPauseMs : 0
+      chunks.push({ text: ch, delay: delay * scale })
+      pause = PUNCTUATION.has(ch) ? cadence.punctuationMs : OPEN_BRACKETS.has(ch) ? cadence.openBracketMs : 0
+      previous = ch
     }
   }
   return chunks
 }
-
-export type Reading = { msPerWord: number; minMs: number; maxMs: number }
 
 export function readingTime(text: string, reading: Reading): number {
   const words = text.split(/\s+/).filter(Boolean).length

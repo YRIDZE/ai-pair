@@ -18,6 +18,8 @@ app.use(express.json());
 app.listen(3000, () => console.log("Listening on http://localhost:3000"));
 `
 
+// Follows AGENT_GUIDE.md: make room before typing, delimiters before contents, and narrate
+// what, why, and how right before the code it's about.
 const SCRIPT: Action[][] = [
   [{ say: "Let me look at how the app is set up first." }, { move: { file: SERVER, position: "file_start" } }],
   [
@@ -31,31 +33,38 @@ const SCRIPT: Action[][] = [
     },
   ],
   [
-    { say: "First, the shape of a todo." },
+    { say: "First, the shape of a todo: a type with an id, a title, and whether it's done." },
     { move: { file: TODOS, position: "file_start" } },
-    { type: "export type Todo = {\n  id: number;\n  title: string;\n  done: boolean;\n};\n" },
+    { type: "export type Todo = {\n};\n" },
+    { move: { text: "Todo = {", direction: "backward" } },
+    { type: "\n  id: number;\n  title: string;\n  done: boolean;" },
   ],
   [
-    { say: "And a function to create one. The routes will call this." },
-    { type: "\nconst todos: Todo[] = [];\nlet nextId = 1;\n\nexport function createTodo(title: string): Todo {\n" },
-    { type: "  const todo = { id: nextId++, title, done: false };\n  todos.push(todo);\n  return todo;\n}\n" },
+    { say: "The store is just an array and a counter for ids. `createTodo` is what the routes will call." },
+    { move: { position: "file_end" } },
+    { type: "\nconst todos: Todo[] = [];\nlet nextId = 1;\n\nexport function createTodo(title: string): Todo {\n}\n" },
+    { move: { text: "): Todo {", direction: "backward" } },
+    { say: "It takes the next id, pushes the new todo onto the array, and returns it, so the route can send it straight back." },
+    { type: "\n  const todo = { id: nextId++, title, done: false };\n  todos.push(todo);\n  return todo;" },
   ],
   [
     {
       say: "Now the route. In Express, a route is an HTTP method, a path, and a handler that receives the request and the response.",
     },
-    { move: { file: SERVER, text: "app.use(express.json());\n" } },
-    { type: '\napp.post("/todos", (req, res) => {\n' },
+    { move: { file: SERVER, text: "app.use(express.json());" } },
+    { type: '\n\napp.post("/todos", (req, res) => {\n});' },
+    { move: { text: "(req, res) => {", direction: "backward" } },
   ],
   [
     { point: { text: "app.use(express.json());" } },
     { say: "`express.json()` up here is what parses the request body, so `req.body` is an object in our handler." },
-    { type: "  const todo = createTodo(req.body.title);\n  res.status(201).json(todo);\n});\n" },
+    { say: "We create the todo from the body's `title`, and answer 201 Created with the new todo as JSON." },
+    { type: "\n  const todo = createTodo(req.body.title);\n  res.status(201).json(todo);" },
   ],
   [
     { say: "We need to import `createTodo`." },
-    { move: { text: 'import express from "express";\n' } },
-    { type_fast: 'import { createTodo } from "./todos";\n' },
+    { move: { text: 'import express from "express";' } },
+    { type_fast: '\nimport { createTodo } from "./todos";' },
   ],
   [
     {
@@ -63,14 +72,18 @@ const SCRIPT: Action[][] = [
     },
   ],
   [
-    { say: "Next, listing todos. First a function in the store." },
+    { say: "Next, listing todos. First a function in the store that hands out the array." },
     { move: { file: TODOS, position: "file_end" } },
-    { type: "\nexport function listTodos(): Todo[] {\n  return todos;\n}\n" },
+    { type: "\nexport function listTodos(): Todo[] {\n}\n" },
+    { move: { text: "listTodos(): Todo[] {", direction: "backward" } },
+    { type: "\n  return todos;" },
   ],
   [
-    { say: "And the route for it, right after the POST handler." },
-    { move: { file: SERVER, text: "});\n" } },
-    { type: '\napp.get("/todos", (req, res) => {\n  res.json(listTodos());\n});\n' },
+    { say: "And the route for it, right after the POST handler: `GET /todos` sends the list back as JSON." },
+    { move: { file: SERVER, text: "});" } },
+    { type: '\n\napp.get("/todos", (req, res) => {\n});' },
+    { move: { text: "(req, res) => {", direction: "backward" } },
+    { type: "\n  res.json(listTodos());" },
   ],
   [
     { say: "It needs the import too." },

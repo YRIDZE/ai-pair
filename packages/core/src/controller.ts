@@ -20,27 +20,21 @@ import { fileDiff } from "./diff"
 import type { AgentState, Change, CursorView, EditorPort, PanelPort } from "./ports"
 import { eolOf, isLineStart, position, splitLines } from "./text"
 import { Timeline } from "./timeline"
-import { planTyping, readingTime, type Cadence, type Reading } from "./typing"
+import { defaultTiming, withOverrides, type Timing, type TimingOverrides } from "./timing"
+import { planTyping, readingTime } from "./typing"
 
 export type Config = {
   maxBlockMs: number
-  type: Cadence
-  typeFast: Cadence
-  reading: Reading
-  /** Pause before a move, a selection, or a deletion, so the programmer sees it coming. */
-  beatMs: number
   /** During the programmer's turn, how long after their last edit `listen` returns. */
   navigatorIdleMs: number
+  timing: Timing
   random: () => number
 }
 
 export const defaultConfig: Config = {
   maxBlockMs: 45_000,
-  type: { rate: 15, jitter: 0.3, punctuationPauseMs: 80, newlinePauseMs: 250 },
-  typeFast: { rate: 60, jitter: 0.3, punctuationPauseMs: 0, newlinePauseMs: 40 },
-  reading: { msPerWord: 180, minMs: 1000, maxMs: 6000 },
-  beatMs: 300,
   navigatorIdleMs: 3000,
+  timing: defaultTiming,
   random: Math.random,
 }
 
@@ -119,7 +113,7 @@ export class Controller {
   constructor(
     private readonly editor: EditorPort,
     private readonly panel: PanelPort,
-    private readonly config: Config = defaultConfig,
+    private config: Config = defaultConfig,
   ) {}
 
   // ---- Tools -------------------------------------------------------------
@@ -321,6 +315,11 @@ export class Controller {
 
   setSpeed(speed: number): void {
     this.speed = speed
+  }
+
+  /** Calibration: overrides on top of the default timing. */
+  setTiming(overrides: TimingOverrides): void {
+    this.config = { ...this.config, timing: withOverrides(defaultTiming, overrides) }
   }
 
   get isActive(): boolean {
@@ -591,7 +590,7 @@ export class Controller {
 
     if ("say" in action) {
       this.panel.post({ type: "say", text: action.say })
-      const ms = readingTime(action.say, this.config.reading) / this.speed
+      const ms = readingTime(action.say, this.config.timing.reading) / this.speed
       s.reading = true
       this.panel.post({ type: "reading", ms })
       this.render()
@@ -605,7 +604,8 @@ export class Controller {
       const m = action.move
       const file = m.file !== undefined ? this.resolvePath(s, m.file) : s.cursor?.file
       if (!file) return fail("no_file", "The agent cursor isn't in a file yet; give `file`.")
-      if (!(await this.delay(s, this.config.beatMs))) return { kind: "interrupted" }
+      const t = this.config.timing
+      if (!(await this.delay(s, t.beforeMoveMs))) return { kind: "interrupted" }
       await this.editor.show(file)
       const text = await this.editor.getText(file)
       let offset: number
@@ -617,21 +617,27 @@ export class Controller {
         if (!r.ok) return failed(r)
         offset = m.at === "start" ? r.range.start : r.range.end
       }
+      const near =
+        s.cursor?.file === file &&
+        Math.abs(position(text, s.cursor.offset).line - position(text, offset).line) <= t.nearLines
       s.cursor = { file, offset }
       s.selection = null
       this.render()
+      // The pause is after the move, so the programmer sees where the cursor went before anything happens there.
+      await this.delay(s, near ? t.afterMoveNearMs : t.afterMoveFarMs)
       return ok
     }
 
     if ("select" in action) {
       if (!s.cursor) return fail("no_file", "The agent cursor isn't in a file yet; `move` first.")
-      if (!(await this.delay(s, this.config.beatMs))) return { kind: "interrupted" }
+      if (!(await this.delay(s, this.config.timing.beforeSelectMs))) return { kind: "interrupted" }
       await this.editor.show(s.cursor.file)
       const r = resolveSpan(await this.editor.getText(s.cursor.file), action.select, s.cursor.offset)
       if (!r.ok) return failed(r)
       s.selection = r.range
       s.cursor.offset = r.range.end
       this.render()
+      await this.delay(s, this.config.timing.afterSelectMs)
       return ok
     }
 
@@ -642,7 +648,6 @@ export class Controller {
 
     if ("delete" in action) {
       if (!s.cursor || !s.selection) return fail("no_selection", "Nothing is selected; `select` first.")
-      if (!(await this.delay(s, this.config.beatMs))) return { kind: "interrupted" }
       const { file } = s.cursor
       const { start, end } = s.selection
       await this.editor.show(file)
@@ -652,6 +657,7 @@ export class Controller {
       touched.add(file)
       await this.editor.edit(file, start, end - start, "", { undoStopBefore: true, undoStopAfter: true })
       this.render()
+      await this.delay(s, this.config.timing.afterDeleteMs)
       return ok
     }
 
@@ -666,6 +672,7 @@ export class Controller {
       s.point = { file, ...r.range }
       this.editor.renderPoint(s.point)
       this.panel.post({ type: "point", file: this.editor.displayPath(file), line: position(text, r.range.start).line })
+      await this.delay(s, this.config.timing.afterPointMs)
       return ok
     }
 
@@ -681,8 +688,8 @@ export class Controller {
     const doc = await this.editor.getText(cursor.file)
     const eol = eolOf(doc)
     const insertAt = s.selection ? s.selection.start : cursor.offset
-    const cadence = fast ? this.config.typeFast : this.config.type
-    const chunks = planTyping(text, cadence, isLineStart(doc, insertAt), this.config.random)
+    const { timing } = this.config
+    const chunks = planTyping(text, timing.type, isLineStart(doc, insertAt), this.config.random, fast ? timing.fastFactor : 1)
 
     if (chunks.length === 0 && s.selection) chunks.push({ text: "", delay: 0 })
     let typed = ""

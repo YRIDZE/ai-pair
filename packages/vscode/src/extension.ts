@@ -15,11 +15,16 @@ export function activate(context: vscode.ExtensionContext): Api {
   const config = () => vscode.workspace.getConfiguration("aiPair")
 
   const editor = new VsCodeEditor(root, config().get("agentName", "Agent"))
-  const panel = new NarrationPanel((file) => editor.resolvePath(file))
+  const speed = {
+    get: () => config().get("speed", 1),
+    set: (value: number) => void config().update("speed", value, vscode.ConfigurationTarget.Global),
+  }
+  const panel = new NarrationPanel((file) => editor.resolvePath(file), speed)
   const controller = new Controller(editor, panel)
   editor.controller = controller
   panel.controller = controller
-  controller.setSpeed(config().get("speed", 1))
+  controller.setSpeed(speed.get())
+  controller.setTiming(config().get("timing", {}))
 
   const bridge = new Bridge(controller, {
     dir: discoveryDir(),
@@ -41,7 +46,11 @@ export function activate(context: vscode.ExtensionContext): Api {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("aiPair.speed")) controller.setSpeed(config().get("speed", 1))
+      if (e.affectsConfiguration("aiPair.speed")) {
+        controller.setSpeed(speed.get())
+        panel.showSpeed(speed.get())
+      }
+      if (e.affectsConfiguration("aiPair.timing")) controller.setTiming(config().get("timing", {}))
       if (e.affectsConfiguration("aiPair.agentName")) editor.setAgentName(config().get("agentName", "Agent"))
     }),
     vscode.commands.registerCommand("aiPair.playDemo", () => {

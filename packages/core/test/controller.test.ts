@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { advance, setup, track, until } from "./fake"
+import type { Action } from "@ai-pair/protocol"
+import { advance, setup, testConfig, track, until } from "./fake"
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -54,6 +55,24 @@ describe("timing", () => {
     controller.resume()
     await advance(1000)
     expect(editor.text("a.ts")).toBe("abc")
+  })
+
+  it("pauses after a move, longer when the move is far", async () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")
+    const { controller } = setup(
+      { "a.ts": lines },
+      { timing: { ...testConfig.timing, beforeMoveMs: 0, afterMoveNearMs: 200, afterMoveFarMs: 1000 } },
+    )
+    await controller.start()
+    const elapsed = async (actions: Action[]) => {
+      const before = Date.now()
+      await controller.step(actions)
+      await until(controller.step([]))
+      return Date.now() - before
+    }
+    expect(await elapsed([{ move: { file: "a.ts", text: "line 2\n" } }])).toBeGreaterThanOrEqual(1000) // another file
+    expect(await elapsed([{ move: { text: "line 5\n" } }])).toBeLessThan(1000) // 3 lines down
+    expect(await elapsed([{ move: { text: "line 35\n" } }])).toBeGreaterThanOrEqual(1000) // 30 lines down
   })
 })
 

@@ -23,7 +23,7 @@ const Action = z.union([
     say: z
       .string()
       .describe(
-        "Narrate, before the actions it describes: intent, connections, tradeoffs. Never read code aloud. One to three sentences; `backticks` render as code. Playback pauses so the programmer can read it.",
+        "Narrate right before the actions it describes: what you're doing, why, and how the code does it. Explain the code, don't recite it. One to three sentences; `backticks` render as code. Playback pauses so the programmer can read it.",
       ),
   }),
   z.object({
@@ -46,7 +46,7 @@ const Action = z.union([
     type: z
       .string()
       .describe(
-        "Type at your cursor at a human pace, replacing the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read.",
+        "Type at your cursor at a human pace, replacing the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Type like a human: never in front of existing text on the same line (go to the end of the previous line and start with a newline), and for blocks, type the opening and closing delimiters first, then move back inside for the contents.",
       ),
   }),
   z.object({

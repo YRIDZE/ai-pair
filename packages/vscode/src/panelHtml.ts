@@ -26,7 +26,12 @@ export function panelHtml(cspSource: string): string {
 
   header { flex: none; padding: 10px 12px 10px; border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, transparent); }
   .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  #status { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 12px; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+  #status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  #status { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; }
+  #status-text { overflow: hidden; text-overflow: ellipsis; }
+  #speed { display: flex; flex: none; border-radius: 3px; overflow: hidden; border: 1px solid var(--vscode-button-border, rgba(128, 128, 128, 0.3)); }
+  #speed button { border: none; border-radius: 0; padding: 1px 7px; font-size: 11px; background: transparent; color: var(--vscode-descriptionForeground); }
+  #speed button.on { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
   .dot.read { background: var(--read); animation: pulse 0.9s ease-in-out infinite; }
   .dot.dim { opacity: 0.4; }
@@ -87,7 +92,12 @@ export function panelHtml(cspSource: string): string {
 <body>
 <div id="app">
   <header>
-    <div id="status"><span id="dot" class="dot off"></span><span id="status-text">No session</span></div>
+    <div id="status-row">
+      <div id="status"><span id="dot" class="dot off"></span><span id="status-text">No session</span></div>
+      <div id="speed" title="Playback speed">
+        <button data-speed="0.6">Slow</button><button data-speed="1">Normal</button><button data-speed="1.6">Fast</button>
+      </div>
+    </div>
     <div class="row">
       <button id="pause" disabled>Pause</button>
       <button id="interrupt" disabled>Interrupt</button>
@@ -224,6 +234,11 @@ export function panelHtml(cspSource: string): string {
         return;
       }
       case "focusReply": ui.reply.focus(); return;
+      case "speed":
+        for (const b of document.querySelectorAll("#speed button")) {
+          b.classList.toggle("on", Math.abs(Number(b.dataset.speed) - e.value) < 0.01);
+        }
+        return;
     }
   }
 
@@ -262,6 +277,9 @@ export function panelHtml(cspSource: string): string {
     vscode.postMessage(message ? { type: "turn", message } : { type: "turn" });
   };
   ui.end.onclick = () => vscode.postMessage({ type: "end" });
+  for (const b of document.querySelectorAll("#speed button")) {
+    b.onclick = () => vscode.postMessage({ type: "speed", value: Number(b.dataset.speed) });
+  }
 
   vscode.postMessage({ type: "ready" });
 </script>
