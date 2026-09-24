@@ -35,8 +35,8 @@ Or, in VS Code: Extensions view → `…` menu → *Install from VSIX…*
 You also need **Node.js 20 or newer**.
 
 ```sh
-git clone <this repository>
-cd ai-pair-programmer
+git clone https://github.com/faiface/ai-pair.git
+cd ai-pair
 npm install
 npm run package
 code --install-extension ai-pair-0.1.0.vsix

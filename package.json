@@ -17,5 +17,9 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/faiface/ai-pair.git"
+  }
 }

@@ -16,7 +16,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test:integration": "sh scripts/integration.sh",
-    "package": "node scripts/build.mjs --production && vsce package --no-dependencies --allow-missing-repository --out ../.."
+    "package": "node scripts/build.mjs --production && vsce package --no-dependencies --out ../.."
   },
   "dependencies": {
     "@ai-pair/core": "*",
@@ -156,5 +156,14 @@
   "devDependencies": {
     "@types/vscode": "1.105.0",
     "@vscode/vsce": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/faiface/ai-pair.git",
+    "directory": "packages/vscode"
+  },
+  "homepage": "https://github.com/faiface/ai-pair#readme",
+  "bugs": {
+    "url": "https://github.com/faiface/ai-pair/issues"
   }
 }
