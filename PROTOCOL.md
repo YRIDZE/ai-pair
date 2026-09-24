@@ -3,7 +3,10 @@
 This document specifies how a coding agent and the editor extension interact
 during a pair programming session. The agent talks to the extension over MCP;
 the extension renders the agent's actions (a second cursor, typing, a narration
-bubble) and reports back what happened, including everything the programmer did.
+panel) and reports back what happened, including everything the programmer did.
+
+This document covers only what the agent can do and observe. How the extension
+presents it to the programmer, and how it's built, is in [DESIGN.md](DESIGN.md).
 
 Status: **draft**. Numbers marked *tunable* are initial guesses to be adjusted
 by feel.
@@ -35,8 +38,7 @@ by feel.
 
 **Agent cursor.** A position (and optional selection) in a file, rendered as a
 second cursor. The extension tracks it through the programmer's edits, like a
-marker. The cursor's appearance reflects the agent's state (see
-[Agent states](#agent-states)).
+marker.
 
 **Action.** A single visible operation: say something, move, select, type,
 delete, point.
@@ -117,18 +119,12 @@ Rules:
 
 ### Pause and follow mode
 
-During the agent's turn, the programmer's view **follows the agent cursor**:
-when the agent moves to another file or off-screen, the view goes with it.
+During the agent's turn, the programmer's view **follows the agent cursor**,
+so every `move` is visible to them.
 
-Playback **pauses automatically** when the programmer navigates away: switches
-to a different editor, or scrolls the agent cursor out of view. It can also be
-paused explicitly with the Pause button.
-
-**Resume always brings the view back to the agent cursor**, then playback
-continues.
-
-Pausing is not an event. The agent isn't told; its blocked call just waits
-longer (subject to `MAX_BLOCK`).
+Playback pauses when the programmer presses Pause or navigates away, and
+resumes when they return. **Pausing is not an event**: the agent isn't told,
+its blocked call just waits longer (subject to `MAX_BLOCK`).
 
 ## Tools
 
@@ -168,7 +164,8 @@ type FileContent = {
 ```ts
 type Action =
   | { say: string }
-  | { move: Anchor & { file?: string, at?: "start" | "end" } }
+  | { move: (Anchor | { position: "file_start" | "file_end" })
+            & { file?: string, at?: "start" | "end" } }
   | { select: Anchor | { from: Anchor, to: Anchor } }
   | { type: string }
   | { type_fast: string }
@@ -182,16 +179,16 @@ agent action, that is an edit like any other (and interrupts).
 
 ### `say`
 
-Shows the text in the narration bubble next to the agent cursor, and appends
-it to the narration history panel. The bubble stays until the next `say`.
+Shows the text as the current message in the narration panel. It stays current
+until the next `say`, then moves into the history. Inline code in backticks is
+rendered as code.
 
-After a `say`, playback **pauses for a reading time** so the programmer can read
-a substantial part of it before the action continues. During this pause the
-agent cursor switches to the "read the bubble" appearance, drawing the
-programmer's eyes to it.
+After a `say`, playback **pauses for a reading time** proportional to the
+message length, so the programmer can read most of it before the actions it
+describes begin.
 
-Reading time: `clamp(words × 180 ms, 1 s, 6 s)`, scaled by the programmer's
-speed setting (*tunable*).
+Keep messages short: one to three sentences. Split longer explanations across
+batches.
 
 ### `move`
 
@@ -200,8 +197,7 @@ if needed); otherwise anchors resolve in the current file. The cursor goes to
 the `start` or `end` of the anchor match (default: `end`, i.e. "after").
 Clears any selection. See [Anchors](#anchors).
 
-`{ move: { file: "src/app.ts", position: "file_start" } }` and
-`"file_end"` are also allowed.
+Instead of an anchor, `position: "file_start"` or `"file_end"` may be given.
 
 ### `select`
 
@@ -215,17 +211,14 @@ Types text at the agent cursor, replacing the selection if there is one. The
 cursor ends after the inserted text.
 
 - `type` is the default: for anything the programmer should read and
-  understand. It plays at a human-like pace (~15 chars/s, *tunable*) with
-  natural rhythm: small pauses at newlines and after punctuation.
+  understand. It plays at a human-like pace.
 - `type_fast` is for boilerplate the programmer doesn't need to read:
-  `public static void Main`, closing braces, imports. ~60 chars/s (*tunable*).
-
-Both are scaled by the programmer's speed setting.
+  `public static void Main`, closing braces, imports. It plays several times
+  faster.
 
 Text is inserted **literally**: no auto-closing brackets, no auto-indent, no
-completions. Leading indentation on each line appears instantly (as the
-programmer's editor would auto-indent), then the rest of the line is typed.
-Newlines are normalized to the document's line endings.
+completions. The agent must include indentation itself. Newlines are
+normalized to the document's line endings.
 
 ### `delete`
 
@@ -239,8 +232,8 @@ for talking about code: "this function is called from two places…". The
 highlight persists until the next `point` or the next editing action.
 
 During the agent's turn, if `file` is not the visible file, the view switches
-to it. During the programmer's turn, the view never switches; the bubble shows
-a clickable reference instead.
+to it. During the programmer's turn, the view never switches; the narration
+panel shows a clickable reference instead.
 
 ## Anchors
 
@@ -320,7 +313,7 @@ triggers the no-stale-plans rule. This includes any edit by the programmer,
 anywhere. (A finer rule, such as only edits near the agent cursor, may come
 later.)
 
-- `message`: the programmer wrote in the bubble.
+- `message`: the programmer sent a message from the narration panel.
 - `interrupt`: the Interrupt button.
 - `turn`: see [Turns](#turns).
 - `edit`: the programmer changed a file. Edits are coalesced per file into a
@@ -347,19 +340,6 @@ The agent receives `{ kind: "turn", to: "user" }`.
 message). The agent receives the programmer's edits since the last report and
 `{ kind: "turn", to: "agent", message? }`.
 
-## Agent states
-
-The agent cursor's appearance shows what the agent is doing:
-
-| State      | When                                                      |
-|------------|-----------------------------------------------------------|
-| typing     | playing `type`, `type_fast`, `move`, `select`, `delete`   |
-| read       | reading pause after `say`: distinct color, subtle pulse   |
-| thinking   | queue empty, agent hasn't called yet: dimmed              |
-| paused     | playback paused (explicitly or by navigating away)        |
-| listening  | agent is in `listen`, waiting for the programmer          |
-| navigator  | programmer's turn                                         |
-
 ## Files, saving, and native tools
 
 - Files the agent edits via the protocol are **saved automatically** when a
@@ -369,8 +349,8 @@ The agent cursor's appearance shows what the agent is doing:
   programmer should follow goes through the protocol; purely mechanical changes
   (generated files, lockfiles, bulk renames) may be done natively, announced in
   one `say`.
-- The extension marks files changed outside the protocol (a low-key indicator
-  and a note in the narration history), so a slip never goes unnoticed.
+- The extension makes changes outside the protocol visible to the programmer,
+  so a slip never goes unnoticed.
 - The agent should not natively edit files that have unsaved changes in the
   editor; `read` reports `dirty` for this reason.
 - **Terminal commands** are run with the agent's native tools; the protocol
@@ -383,7 +363,8 @@ The agent cursor's appearance shows what the agent is doing:
 This becomes the MCP server's instructions.
 
 - **Narrate before acting.** Each batch typically starts with a `say`
-  explaining what is about to happen and why.
+  explaining what is about to happen and why. Keep it to one to three
+  sentences.
 - **Small batches.** One idea per batch: usually a narration and a few lines of
   code. Long batches delay the programmer's ability to steer.
 - **Write in human order.** Skeleton first (signature, then body), jump back
@@ -424,7 +405,7 @@ This becomes the MCP server's instructions.
 
 ```jsonc
 // Batch 2 is playing; the agent has already submitted batch 3 and is blocked.
-// The programmer clicks the bubble and writes "use zod for validation".
+// The programmer replies in the narration panel: "use zod for validation".
 // ← step returns immediately
 { "batches": [
     { "id": 2, "status": "interrupted", "played": 1,
