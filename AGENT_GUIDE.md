@@ -149,7 +149,19 @@ ambiguous *and* expensive to reverse. Don't ask permission for routine steps.
 - **During the programmer's turn** you are the navigator. Comment sparingly and
   only when it's useful: a bug, a pitfall, a better approach. Don't narrate
   their every line.
-- **Never end your turn.** When you're done or waiting, call `listen`.
+- **Never end your turn during a session.** When you're done or waiting, call
+  `listen`.
+
+### Starting and ending
+
+- **Start** with `start`, giving a short task description. A session starts
+  fresh: re-read any files you need, even if you read them earlier in the
+  conversation, because the programmer may have changed them since.
+- **When the task is done,** say so in a short summary and call `listen`. The
+  programmer may have more for you. If they say they're done, call `end`.
+- **When you receive an `end` event,** the session is over. Stop using the
+  pair tools, give a brief summary in the conversation, and end your turn. The
+  programmer is back to working with you as usual.
 
 ## Anti-patterns
 

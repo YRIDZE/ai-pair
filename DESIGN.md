@@ -1,41 +1,12 @@
 # Extension Design
 
-How the extension looks and behaves for the programmer, and how it's built.
-The contract with the agent is in [PROTOCOL.md](PROTOCOL.md); this document
-covers everything the agent doesn't see.
+How the extension looks and behaves for the programmer. The contract with the
+agent is in [PROTOCOL.md](PROTOCOL.md), and the components and how they
+connect are in [ARCHITECTURE.md](ARCHITECTURE.md). This document covers what
+the programmer experiences.
 
 Status: **draft**. Numbers marked *tunable* are initial guesses to be adjusted
 by feel.
-
-## Architecture
-
-```
-agent harness (Claude Code, …)
-        │  MCP, streamable HTTP on 127.0.0.1
-        ▼
-┌─ extension ─────────────────────────────────────────────┐
-│  MCP server                                             │
-│        │                                                │
-│  core (editor-agnostic)                                 │
-│    batch queue, playback scheduler, anchor resolution,  │
-│    cursor tracking, event log, reports, turn state      │
-│        │                                                │
-│  editor adapter (VS Code)          narration panel      │
-│    edits, change events,  ◀──────▶ (webview)            │
-│    decorations, scrolling                               │
-└─────────────────────────────────────────────────────────┘
-```
-
-- **MCP server** runs inside the extension, one session per window, on a
-  random localhost port. The extension writes a discovery file (port and auth
-  token) and offers a command to add it to the agent's MCP config.
-- **Core** holds all protocol logic and has no editor dependencies, so it can
-  be tested against a fake editor and reused for Zed later.
-- **Editor adapter** is a thin layer over the VS Code API: apply edits with
-  undo stops, report document changes, render decorations, scroll, save.
-- **Telling edits apart.** The adapter tracks the document versions produced by
-  its own edits. Any change it didn't make is the programmer's (or an external
-  tool's).
 
 ## Agent cursor
 

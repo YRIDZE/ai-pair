@@ -6,7 +6,8 @@ the extension renders the agent's actions (a second cursor, typing, a narration
 panel) and reports back what happened, including everything the programmer did.
 
 This document covers only what the agent can do and observe. How the extension
-presents it to the programmer, and how it's built, is in [DESIGN.md](DESIGN.md).
+presents it to the programmer is in [DESIGN.md](DESIGN.md), and how the tool is
+built and connected is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Status: **draft**. Numbers marked *tunable* are initial guesses to be adjusted
 by feel.
@@ -31,8 +32,8 @@ by feel.
 3. **Events are delivered exactly once**, in the reports of `step` and `listen`.
 4. **No stale plans.** A batch never plays if it was planned without knowledge
    of an interrupting event.
-5. **The agent never ends its turn.** When it has nothing to do, it calls
-   `listen` and waits for the programmer.
+5. **During a session, the agent never ends its turn.** When it has nothing to
+   do, it calls `listen` and waits for the programmer.
 
 ## Concepts
 
@@ -55,6 +56,12 @@ batches, plus events that happened since the last report.
 **Turn.** Either the agent's turn (it drives, the programmer watches) or the
 programmer's turn (the programmer drives, the agent can only comment). Turns
 change only explicitly.
+
+**Session.** One stretch of pairing, from `start` to its end. One harness
+conversation can contain many sessions, one after another: the programmer
+works with the agent as usual, pairs for a while, ends the session, and may
+pair again later. Outside a session, all tools except `start` fail with
+`no_session`.
 
 ## Timing model
 
@@ -127,6 +134,20 @@ resumes when they return. **Pausing is not an event**: the agent isn't told,
 its blocked call just waits longer (subject to `MAX_BLOCK`).
 
 ## Tools
+
+### `start(task?: string) -> Report`
+
+Starts a session in the editor window for the current project. `task` is a
+short description shown in the narration panel. Fails if a session is already
+active in that window, or if no editor window has the project open.
+
+The session starts in the agent's turn, with no agent cursor until the first
+`move`.
+
+### `end(summary?: string) -> Report`
+
+Ends the session. Anything still queued plays out first. `summary` is shown as
+the closing message in the narration panel. Returns the final report.
 
 ### `step(actions: Action[]) -> Report`
 
@@ -273,7 +294,7 @@ type Report = {
   }
   events: Event[]             // programmer events since the last report, in order
   turn: "agent" | "user"
-  cursor: { file: string, line: number, column: number, selection?: Range }
+  cursor?: { file: string, line: number, column: number, selection?: Range }  // absent before the first move
   waiting?: true              // returned due to MAX_BLOCK; call listen to continue
 }
 
@@ -306,6 +327,7 @@ type Event =
   | { kind: "edit", file: string, diff: string }
   | { kind: "interrupt" }
   | { kind: "turn", to: "agent" | "user", message?: string }
+  | { kind: "end" }
 ```
 
 During the agent's turn, **every event interrupts**: it stops playback and
@@ -318,6 +340,8 @@ later.)
 - `turn`: see [Turns](#turns).
 - `edit`: the programmer changed a file. Edits are coalesced per file into a
   single diff per report.
+- `end`: the programmer ended the session. Playback stops and the session is
+  over: this is its final report, and further calls fail with `no_session`.
 
 Pause is not an event; see [Pause and follow mode](#pause-and-follow-mode).
 
