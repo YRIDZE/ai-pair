@@ -360,26 +360,10 @@ message). The agent receives the programmer's edits since the last report and
 
 ## Guidance for the agent
 
-This becomes the MCP server's instructions.
-
-- **Narrate before acting.** Each batch typically starts with a `say`
-  explaining what is about to happen and why. Keep it to one to three
-  sentences.
-- **Small batches.** One idea per batch: usually a narration and a few lines of
-  code. Long batches delay the programmer's ability to steer.
-- **Write in human order.** Skeleton first (signature, then body), jump back
-  to add an import when it's needed. Don't write files top to bottom in one
-  pass.
-- **Prefer `type`.** Use `type_fast` only for boilerplate the programmer
-  doesn't need to read.
-- **Edit visibly.** Select before replacing or deleting.
-- **Narrate commands.** Before running a terminal command, `say` what and why;
-  afterwards, `say` what happened ("tests pass", "two failures, both in the
-  parser").
-- **Re-plan after interruptions.** Read the report: what was typed, what the
-  programmer said or did. Unplayed actions are there to reuse if they still
-  make sense.
-- **Never end the turn.** When done or waiting, call `listen`.
+How the agent should use this protocol to give the programmer a good
+experience (order of work, narration, background vs. visible work) is in
+[AGENT_GUIDE.md](AGENT_GUIDE.md), the source text for the MCP server
+instructions, tool descriptions, and the `/pair` prompt.
 
 ## Examples
 
