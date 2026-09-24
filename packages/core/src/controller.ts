@@ -308,6 +308,14 @@ export class Controller {
     return this.activeSession() !== null
   }
 
+  get isPaused(): boolean {
+    return this.pauseReasons.size > 0
+  }
+
+  get turn(): Turn | null {
+    return this.activeSession()?.turn ?? null
+  }
+
   // ---- Calls and reports -------------------------------------------------
 
   private serialize<T>(fn: () => Promise<T>): Promise<T> {

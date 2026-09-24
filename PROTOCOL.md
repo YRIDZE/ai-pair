@@ -131,8 +131,8 @@ Rules:
 During the agent's turn, the programmer's view **follows the agent cursor**,
 so every `move` is visible to them.
 
-Playback pauses when the programmer presses Pause or navigates away, and
-resumes when they return. **Pausing is not an event**: the agent isn't told,
+Playback pauses when the programmer presses Pause, navigates away, or starts
+typing a reply, until they resume. **Pausing is not an event**: the agent isn't told,
 its blocked call just waits longer (subject to `MAX_BLOCK`).
 
 ## Tools

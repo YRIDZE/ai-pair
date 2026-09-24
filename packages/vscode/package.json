@@ -1,0 +1,148 @@
+{
+  "name": "ai-pair",
+  "displayName": "AI Pair Programmer",
+  "description": "Pair program with an AI agent: a second cursor that types at a human pace and narrates what it's doing.",
+  "version": "0.0.1",
+  "publisher": "ai-pair",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --sourcemap --outfile=dist/extension.js",
+    "test:integration": "sh scripts/integration.sh"
+  },
+  "dependencies": {
+    "@ai-pair/core": "*",
+    "@ai-pair/protocol": "*"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "aiPair",
+          "title": "Pair",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "aiPair": [
+        {
+          "type": "webview",
+          "id": "aiPair.narration",
+          "name": "Pair"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aiPair.playDemo",
+        "title": "Play Demo Session",
+        "category": "AI Pair"
+      },
+      {
+        "command": "aiPair.togglePause",
+        "title": "Pause / Resume",
+        "category": "AI Pair"
+      },
+      {
+        "command": "aiPair.interrupt",
+        "title": "Interrupt",
+        "category": "AI Pair"
+      },
+      {
+        "command": "aiPair.toggleTurn",
+        "title": "Take / Hand Back the Turn",
+        "category": "AI Pair"
+      },
+      {
+        "command": "aiPair.endSession",
+        "title": "End Session",
+        "category": "AI Pair"
+      },
+      {
+        "command": "aiPair.focusReply",
+        "title": "Reply to the Agent",
+        "category": "AI Pair"
+      }
+    ],
+    "configuration": {
+      "title": "AI Pair",
+      "properties": {
+        "aiPair.speed": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.25,
+          "maximum": 4,
+          "description": "Playback speed multiplier for typing and reading pauses."
+        },
+        "aiPair.agentName": {
+          "type": "string",
+          "default": "Agent",
+          "description": "Name shown on the agent's cursor."
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "aiPair.cursor",
+        "description": "The agent's cursor.",
+        "defaults": {
+          "dark": "#E8875B",
+          "light": "#C2410C",
+          "highContrast": "#FF9E6B",
+          "highContrastLight": "#9A3412"
+        }
+      },
+      {
+        "id": "aiPair.cursorRead",
+        "description": "The agent's cursor while it waits for you to read its message.",
+        "defaults": {
+          "dark": "#FACC15",
+          "light": "#B45309",
+          "highContrast": "#FFE14D",
+          "highContrastLight": "#92400E"
+        }
+      },
+      {
+        "id": "aiPair.selectionBackground",
+        "description": "Background of the agent's selection.",
+        "defaults": {
+          "dark": "#E8875B40",
+          "light": "#C2410C2E",
+          "highContrast": "#FF9E6B55",
+          "highContrastLight": "#9A341240"
+        }
+      },
+      {
+        "id": "aiPair.pointBackground",
+        "description": "Background of code the agent is pointing at.",
+        "defaults": {
+          "dark": "#FACC1526",
+          "light": "#B4530920",
+          "highContrast": "#FFE14D40",
+          "highContrastLight": "#92400E30"
+        }
+      },
+      {
+        "id": "aiPair.pointBorder",
+        "description": "Border of code the agent is pointing at.",
+        "defaults": {
+          "dark": "#FACC1599",
+          "light": "#B4530999",
+          "highContrast": "#FFE14D",
+          "highContrastLight": "#92400E"
+        }
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/vscode": "1.105.0"
+  }
+}

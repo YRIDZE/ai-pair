@@ -40,10 +40,11 @@ highly visible and nothing in the panel may move unexpectedly.
 
 Layout, top to bottom:
 
-1. **Controls and reply box.** Pause/Resume, Interrupt, My turn / Your turn,
-   speed. The reply box is slim and low-contrast until focused, so it doesn't
+1. **Controls and reply box.** A status line of its own (so its changing text
+   never moves anything), then Pause/Resume, Interrupt, My turn / Your turn,
+   End. The reply box is slim and low-contrast until focused, so it doesn't
    compete with the message. These sit above the message so their position
-   never changes.
+   never changes. Speed is a setting (`aiPair.speed`).
 2. **Current message.** Large text (≈1.4× the editor font, *tunable*), high
    contrast. Its **top edge is fixed**; its height grows downward with the
    message length. A new message briefly flashes in, in sync with the cursor's
@@ -57,10 +58,15 @@ Layout, top to bottom:
 
 Behavior:
 
-- **Focusing the reply box pauses playback**, the way a pair stops when you
-  start talking. Sending the reply delivers a `message` event (which
-  interrupts). Leaving it empty and unfocusing resumes.
-- A keyboard shortcut focuses the reply box from the editor.
+- **Typing in the reply box pauses playback**, the way a pair stops when you
+  start talking. Clearing it resumes. Sending the reply delivers a `message`
+  event (which interrupts) and ends any pause, so the agent's answer plays
+  right away. (Pausing on focus alone would leave playback paused after
+  sending, while the box still has focus.)
+- With text in the reply box, "Your turn" hands back the turn with it as the
+  message.
+- The command *AI Pair: Reply to the Agent* focuses the reply box from the
+  editor; bind it to a key of your choice.
 - During the programmer's turn the panel shows "Your turn" prominently; the
   agent's comments appear as the current message as usual.
 
@@ -129,7 +135,7 @@ wording stays neutral.
   config directly. How to make the first run trivial.
 - **Panel placement.** Secondary side bar by default; is it wide enough for
   large text, or should the panel be an editor-group webview?
-- **Focus-to-pause.** Does pausing when the reply box is focused feel natural,
-  or does it surprise?
+- **Type-to-pause.** Does pausing when the programmer starts typing a reply
+  feel natural, or does it surprise?
 - **Bulk changes outside the protocol.** A bulk rename marks many files at
   once; the history entry should probably group them.
