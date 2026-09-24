@@ -2,7 +2,7 @@
   "name": "ai-pair",
   "displayName": "AI Pair Programmer",
   "description": "Pair program with an AI agent: a second cursor that types at a human pace and narrates what it's doing.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "ai-pair",
   "private": true,
   "license": "UNLICENSED",
@@ -14,8 +14,9 @@
     "onStartupFinished"
   ],
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --sourcemap --outfile=dist/extension.js && esbuild ../relay/src/main.ts --bundle --platform=node --format=cjs --target=node20 --loader:.md=text --outfile=dist/relay.js",
-    "test:integration": "sh scripts/integration.sh"
+    "build": "node scripts/build.mjs",
+    "test:integration": "sh scripts/integration.sh",
+    "package": "node scripts/build.mjs --production && vsce package --no-dependencies --skip-license --allow-missing-repository --out ../.."
   },
   "dependencies": {
     "@ai-pair/core": "*",
@@ -153,6 +154,7 @@
     ]
   },
   "devDependencies": {
-    "@types/vscode": "1.105.0"
+    "@types/vscode": "1.105.0",
+    "@vscode/vsce": "^4.0.0"
   }
 }
