@@ -23,7 +23,7 @@ const Action = z.union([
     say: z
       .string()
       .describe(
-        "Narrate right before the actions it describes: what you're doing, why, and how the code does it. Explain the code, don't recite it. One to three sentences; `backticks` render as code. Playback pauses so the programmer can read it.",
+        "Narrate right before the actions it describes: what you're doing, why, and how your code does it. It's about your code and your choices, not how the language or its libraries work (unless the programmer asked to learn them). Explain the code, don't recite it. One to three sentences; `backticks` render as code. Playback pauses so the programmer can read it.",
       ),
   }),
   z.object({

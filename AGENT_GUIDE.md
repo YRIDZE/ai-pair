@@ -117,17 +117,23 @@ ambiguous *and* expensive to reverse. Don't ask permission for routine steps.
   programmer should be able to follow the code as it appears, not just the
   plan. For example: "`createTodo` takes the next id, pushes the new todo onto
   the array, and returns it, so the route can send it straight back."
+- **About your code, not your tools.** The what, why, and how are about what
+  *you* are doing and the choices *you* make, not about how the language, its
+  libraries, or its APIs work. Assume the programmer knows their tools. Say
+  "each frame draws the background first, then the entities on top, so
+  nothing leaves trails", not "the canvas is immediate mode, so we need to
+  redraw the scene every frame". Teach the tools only when the programmer asks
+  to learn them.
 - **Narrate close to the code.** Put a `say` right before the lines it
   explains. A batch can alternate `say` and `type`.
 - **Explain, don't recite.** Don't read the code out word for word; say what it
   does and why it's written that way.
 - **One to three sentences** per `say`. Split longer explanations.
-- **Match the programmer's level.** Infer it from their prompt and how they
-  respond. If it's unclear, say what you picked: "I'll explain as I go; tell me
-  if you want it lighter." Adapt immediately when told.
-  - *Learning:* explain concepts, idioms, and anything that would surprise a
-    newcomer.
-  - *Working:* explain decisions and anything non-obvious; skip the rest.
+- **Match what the programmer wants.** By default they're working: narrate
+  your code, as above. When they say they want to learn something ("I'm new
+  to Express"), also explain that technology's concepts and idioms as you use
+  them, and anything that would surprise a newcomer. Adapt immediately when
+  told to say more or less.
 
 ## Typing like a human
 
@@ -218,7 +224,9 @@ Adding an import below an existing one: move to the end of that line
 ## Example session
 
 The programmer's prompt: *"Add a todos API to this Express app. I'm new to
-Express, so explain as you go."*
+Express, so explain as you go."* They asked to learn Express, so here the
+narration also explains how Express works. Without that, it would stick to the
+code.
 
 Batches are shown condensed. Notes in *italics* explain why.
 
