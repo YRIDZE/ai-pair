@@ -3,6 +3,8 @@
 
 import * as assert from "node:assert/strict"
 import * as path from "node:path"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import * as vscode from "vscode"
 import type { Api } from "../src/extension"
 
@@ -89,4 +91,31 @@ export async function run(): Promise<void> {
   assert.deepEqual(report.cursor, { file: "scratch.ts", line: 2, column: typed.length + 1 })
   await c.end()
   console.log(`interrupted after typing ${JSON.stringify(typed)}`)
+
+  // An agent connecting the way a harness does: the launcher, over stdio, from the project folder.
+  await api.ready
+  const transport = new StdioClientTransport({
+    command: api.launcher,
+    cwd: root,
+    env: process.env as Record<string, string>,
+  })
+  const agent = new Client({ name: "integration", version: "0" })
+  await agent.connect(transport)
+  const tools = await agent.listTools()
+  assert.deepEqual(tools.tools.map((t) => t.name).sort(), ["end", "listen", "read", "start", "step"])
+  const tool = async (name: string, args: Record<string, unknown> = {}) => {
+    const result = await agent.callTool({ name, arguments: args })
+    const content = result.content as { type: string; text: string }[]
+    assert.ok(!result.isError, content[0]?.text ?? "tool error")
+    return JSON.parse(content[0]!.text)
+  }
+  c.setSpeed(20)
+  await tool("start", { task: "relay test" })
+  await tool("step", { actions: [{ say: "Hello from the relay." }, { move: { file: "relay.txt" } }, { type: "typed via the relay" }] })
+  const last = await tool("step", { actions: [] })
+  assert.equal(last.batches[0]?.status, "completed")
+  assert.equal(await buffer("relay.txt"), "typed via the relay")
+  await tool("end", { summary: "Bye." })
+  await agent.close()
+  console.log("relay session OK")
 }

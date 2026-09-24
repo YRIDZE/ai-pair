@@ -22,7 +22,7 @@ Status: **draft**.
 ```
 
 - **`pair-mcp`** is the MCP server the harness launches over stdio. It holds the
-  tool schemas, the server instructions, and the `/pair` prompt, and forwards
+  tool schemas, the server instructions, and the `start` prompt, and forwards
   every tool call to the extension. It has no session state of its own.
 - **The core** is an editor-agnostic TypeScript library, running inside the
   extension: sessions, the batch queue, the playback scheduler, anchor
@@ -87,10 +87,23 @@ MCP tool calls one to one:
 - `call { id, tool, args }` → `result { id, … }` or `error { id, … }`.
 - `cancel { id }`: forwarded when the harness cancels a tool call, for example
   when the programmer presses Esc in the harness.
+- `return { report }`: a report that arrived for a call the relay had already
+  cancelled, handed back to be delivered again (see below).
 
 **Cancelling a call doesn't affect the session.** A cancelled `step` has
 already queued its batch, and its outcome is reported on the next call.
-Cancellation just releases the blocked call.
+Cancellation just releases the blocked call, without taking a report.
+
+**Reports survive a race with cancellation.** A cancellation takes a moment to
+reach the editor. If the call returns in that moment (say, because the
+programmer just wrote a message), the harness has already given up on it and
+the report would be lost. So the relay sends such a report back, and the
+editor puts its batches and events back to be reported again. The WebSocket is
+ordered, so this happens before the agent's next call arrives.
+
+**Paths are relative to the agent's working directory.** The relay sends its
+working directory with `start`, and the session resolves and reports paths
+relative to it, which may be a subfolder of the workspace.
 
 ## Sessions
 
@@ -101,7 +114,7 @@ ends it, goes back to the harness, and may pair again later.
 A **session**:
 
 - **starts** when the agent calls `start`, typically because the programmer
-  ran `/pair …`. The panel opens.
+  asked it to pair, or ran the `start` prompt. The panel opens.
 - **ends** when:
   - the programmer presses End session in the panel, or
   - the agent calls `end` (e.g. the programmer said they're done), or
@@ -116,7 +129,7 @@ The programmer's edits between sessions aren't tracked. A new session starts
 fresh, and the agent should re-read what it needs.
 
 The panel keeps each session's narration history. Between sessions it shows
-"No active session. Run `/pair` in your agent."
+"No active session", and how to start one.
 
 ## Starting a session
 
@@ -127,11 +140,13 @@ with the harness. For Claude Code it runs:
 claude mcp add --scope user pair -- ~/.ai-pair/bin/pair-mcp
 ```
 
-For other harnesses it shows the config snippet to copy.
+For other harnesses it copies the config snippet to the clipboard. The
+extension offers this once, the first time it starts.
 
-**Each session.** In the harness, the programmer runs
-`/pair add a todos API, I'm new to Express` (or just asks the agent to pair).
-The prompt loads the [agent guide](AGENT_GUIDE.md) and the agent calls `start`.
+**Each session.** The programmer asks the agent to pair ("let's pair on adding
+a todos API, I'm new to Express"), or runs the server's `start` prompt (in
+Claude Code: `/mcp__pair__start`). The agent calls `start`, which returns the
+[agent guide](AGENT_GUIDE.md) along with the first report.
 
 **Later, from the editor.** Starting from the editor (type the task in the
 panel, and the extension launches the harness in the integrated terminal)
@@ -152,11 +167,12 @@ programmer doesn't need Node installed.
 
 ```
 packages/
-  protocol/   types, tool schemas, server instructions and /pair prompt
-              (generated from AGENT_GUIDE.md at build time)
-  core/       editor-agnostic session and playback logic
-  relay/      pair-mcp: stdio MCP ↔ WebSocket
-  vscode/     the extension: adapter, WebSocket server, panel, launcher
+  protocol/   types of the agent protocol and the relay ↔ editor messages
+  core/       editor-agnostic session and playback logic, and the WebSocket
+              server (bridge) with discovery
+  relay/      pair-mcp: stdio MCP ↔ WebSocket; tool schemas, instructions,
+              the start prompt; bundles AGENT_GUIDE.md at build time
+  vscode/     the extension: adapter, panel, launcher, setup; ships the relay
 ```
 
 TypeScript throughout, npm workspaces, bundled with esbuild. The relay uses

@@ -14,7 +14,7 @@
     "onStartupFinished"
   ],
   "scripts": {
-    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --sourcemap --outfile=dist/extension.js",
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --sourcemap --outfile=dist/extension.js && esbuild ../relay/src/main.ts --bundle --platform=node --format=cjs --target=node20 --loader:.md=text --outfile=dist/relay.js",
     "test:integration": "sh scripts/integration.sh"
   },
   "dependencies": {
@@ -41,6 +41,11 @@
       ]
     },
     "commands": [
+      {
+        "command": "aiPair.setUpAgent",
+        "title": "Set Up Agent",
+        "category": "AI Pair"
+      },
       {
         "command": "aiPair.playDemo",
         "title": "Play Demo Session",

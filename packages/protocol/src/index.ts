@@ -74,7 +74,7 @@ export type FileContent = {
   lines: { number: number; text: string }[]
 }
 
-export type ToolErrorCode = "no_session" | "session_active" | "no_editor"
+export type ToolErrorCode = "no_session" | "session_active" | "no_editor" | "cancelled" | "invalid_arguments"
 
 export class ToolError extends Error {
   constructor(
@@ -84,3 +84,5 @@ export class ToolError extends Error {
     super(message)
   }
 }
+
+export * from "./wire"

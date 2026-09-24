@@ -97,7 +97,7 @@ export function panelHtml(cspSource: string): string {
     <textarea id="reply" rows="1" placeholder="Reply to the agent… (Enter to send)" disabled></textarea>
   </header>
   <section id="now">
-    <div id="now-text" class="empty">No active session. Ask your agent to pair (<code>/pair</code>), or run <em>AI Pair: Play Demo Session</em>.</div>
+    <div id="now-text" class="empty">No active session. Ask your agent to pair with you, or run <em>AI Pair: Play Demo Session</em>. First time? Run <em>AI Pair: Set Up Agent</em>.</div>
     <div id="now-ref"></div>
     <div id="reading"><div id="reading-fill"></div></div>
   </section>

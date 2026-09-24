@@ -4,14 +4,16 @@ How the agent should behave during a pairing session so that the programmer
 can follow, understand, and steer. The mechanics are in
 [PROTOCOL.md](PROTOCOL.md); this document is about *how to use them well*.
 
-It's the source text for everything that teaches the agent:
+It's the source text for teaching the agent:
 
-- **MCP server instructions**: a condensed version of
-  [The test](#the-test), [The default shape](#the-default-shape) and
-  [Anti-patterns](#anti-patterns), always loaded.
-- **Tool descriptions**: the relevant rules repeated at the point of use.
-- **The `/pair` prompt**: the full guide, including the example session,
-  loaded when a session starts.
+- **The guide itself**: everything below the line is returned, verbatim,
+  with every `start`. So the agent has it whenever a session begins, however
+  the session was started, and again after its context was compacted.
+- **MCP server instructions**: always loaded by the harness, so they only say
+  what the server is for and to follow the guide `start` returns.
+- **Tool descriptions**: the rules that matter at the point of use, repeated.
+- **The `start` prompt**: just kicks a session off (in Claude Code:
+  `/mcp__pair__start`).
 
 Everything below the line is written to the agent.
 

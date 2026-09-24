@@ -215,6 +215,48 @@ describe("turns", () => {
   })
 })
 
+describe("cancellation", () => {
+  it("releases a blocked call without consuming the report", async () => {
+    const { controller } = setup({ "a.ts": "" })
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts" } }])
+    await advance(500)
+    const abort = new AbortController()
+    const cancelled = track(controller.listen(abort.signal))
+    await advance(10)
+    abort.abort()
+    await advance(10)
+    expect(cancelled.error).toMatchObject({ code: "cancelled" })
+
+    // The next call isn't stuck behind the cancelled one, and gets the report.
+    controller.userMessage("hello")
+    const report = await until(controller.listen())
+    expect(report.batches).toEqual([{ id: 1, status: "completed", played: 1 }])
+    expect(report.events).toEqual([{ kind: "message", text: "hello" }])
+  })
+
+  it("keeps a cancelled step's batch queued and reports it later", async () => {
+    const { editor, controller } = setup({ "a.ts": "" })
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts" } }, { type: "ab" }])
+    const abort = new AbortController()
+    const second = track(controller.step([{ type: "c" }], abort.signal))
+    await advance(10)
+    expect(second.done).toBe(false)
+    abort.abort()
+    await advance(10)
+    expect(second.error).toMatchObject({ code: "cancelled" })
+
+    await advance(1000)
+    expect(editor.text("a.ts")).toBe("abc")
+    const report = await until(controller.step([]))
+    expect(report.batches.map((b) => [b.id, b.status])).toEqual([
+      [1, "completed"],
+      [2, "completed"],
+    ])
+  })
+})
+
 describe("sessions", () => {
   it("rejects tools outside a session and a second start", async () => {
     const { controller } = setup()

@@ -1,12 +1,14 @@
 import * as os from "node:os"
 import * as vscode from "vscode"
-import { Controller } from "@ai-pair/core"
+import { Bridge, Controller } from "@ai-pair/core"
+import { discoveryDir } from "@ai-pair/protocol"
 import { playDemo } from "./demo"
 import { VsCodeEditor } from "./editor"
 import { NarrationPanel } from "./panel"
+import { setUpAgent, writeLauncher } from "./setup"
 
 /** Returned from `activate`, for integration tests. */
-export type Api = { controller: Controller; playDemo: () => Promise<void> }
+export type Api = { controller: Controller; playDemo: () => Promise<void>; launcher: string; ready: Promise<void> }
 
 export function activate(context: vscode.ExtensionContext): Api {
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir()
@@ -19,7 +21,21 @@ export function activate(context: vscode.ExtensionContext): Api {
   panel.controller = controller
   controller.setSpeed(config().get("speed", 1))
 
+  const bridge = new Bridge(controller, {
+    dir: discoveryDir(),
+    workspaceFolders: () => (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
+  })
+  const ready = bridge.start()
+  ready.catch((e: unknown) => void vscode.window.showErrorMessage(`AI Pair couldn't start its local server: ${String(e)}`))
+  const launcher = writeLauncher(context.extensionPath)
+
   context.subscriptions.push(
+    { dispose: () => bridge.dispose() },
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) bridge.focused()
+    }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => bridge.writeDiscovery()),
+    vscode.commands.registerCommand("aiPair.setUpAgent", () => setUpAgent(launcher)),
     editor,
     vscode.window.registerWebviewViewProvider(NarrationPanel.viewId, panel, {
       webviewOptions: { retainContextWhenHidden: true },
@@ -48,7 +64,14 @@ export function activate(context: vscode.ExtensionContext): Api {
     vscode.commands.registerCommand("aiPair.focusReply", () => panel.focusReply()),
     { dispose: () => controller.disconnect() },
   )
-  return { controller, playDemo: () => playDemo(controller, root) }
+  if (!context.globalState.get("aiPair.offeredSetup")) {
+    void context.globalState.update("aiPair.offeredSetup", true)
+    void vscode.window
+      .showInformationMessage("AI Pair is installed. Connect it to your agent?", "Set Up Agent")
+      .then((answer) => answer && setUpAgent(launcher))
+  }
+
+  return { controller, playDemo: () => playDemo(controller, root), launcher, ready }
 }
 
 export function deactivate(): void {}

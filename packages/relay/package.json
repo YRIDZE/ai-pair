@@ -1,13 +1,13 @@
 {
-  "name": "@ai-pair/core",
+  "name": "@ai-pair/relay",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
   "dependencies": {
     "@ai-pair/protocol": "*",
-    "diff": "^9.0.0",
-    "ws": "^8.21.3"
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "ws": "^8.21.3",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1"

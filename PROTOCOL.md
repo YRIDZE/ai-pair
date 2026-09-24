@@ -120,7 +120,7 @@ Rules:
   typing is deterministic; only the programmer can break that prediction, and
   that is an interrupting event, covered by the rules above.)
 - **Timeouts.** Any blocking call returns after at most `MAX_BLOCK` (*tunable*,
-  ~60 s, safely below MCP client timeouts) even if nothing has finished, with
+  ~45 s, safely below common MCP client timeouts) even if nothing has finished, with
   `"waiting": true`. Nothing is lost: the agent simply carries on as if the
   call had returned normally, submitting its next batch with `step`, or
   calling `listen` if it has nothing more. This covers long playbacks and
@@ -142,6 +142,12 @@ its blocked call just waits longer (subject to `MAX_BLOCK`).
 Starts a session in the editor window for the current project. `task` is a
 short description shown in the narration panel. Fails if a session is already
 active in that window, or if no editor window has the project open.
+
+Besides the report, the result includes the [agent guide](AGENT_GUIDE.md),
+which the agent follows for the whole session.
+
+File paths given to and returned by all tools are relative to the agent's
+working directory (absolute paths work too).
 
 The session starts in the agent's turn, with no agent cursor until the first
 `move`.
@@ -394,8 +400,7 @@ message). The agent receives the programmer's edits since the last report and
 
 How the agent should use this protocol to give the programmer a good
 experience (order of work, narration, background vs. visible work) is in
-[AGENT_GUIDE.md](AGENT_GUIDE.md), the source text for the MCP server
-instructions, tool descriptions, and the `/pair` prompt.
+[AGENT_GUIDE.md](AGENT_GUIDE.md), which `start` returns to the agent.
 
 ## Examples
 

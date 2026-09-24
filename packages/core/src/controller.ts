@@ -13,6 +13,7 @@ import type {
   Report,
   Turn,
 } from "@ai-pair/protocol"
+import * as nodePath from "node:path"
 import { ToolError } from "@ai-pair/protocol"
 import { resolveAnchor, resolveSpan, type Resolution } from "./anchors"
 import { fileDiff } from "./diff"
@@ -34,7 +35,7 @@ export type Config = {
 }
 
 export const defaultConfig: Config = {
-  maxBlockMs: 60_000,
+  maxBlockMs: 45_000,
   type: { rate: 15, jitter: 0.3, punctuationPauseMs: 80, newlinePauseMs: 250 },
   typeFast: { rate: 60, jitter: 0.3, punctuationPauseMs: 0, newlinePauseMs: 40 },
   reading: { msPerWord: 180, minMs: 1000, maxMs: 6000 },
@@ -50,11 +51,13 @@ type Batch = {
   result?: BatchResult
 }
 
-/** Like `Event`, but edits get their diff when the report is taken. */
-type PendingEvent = Exclude<Event, { kind: "edit" }> | { kind: "edit"; file: string }
+/** Like `Event`, but edits usually get their diff when the report is taken. */
+type PendingEvent = Exclude<Event, { kind: "edit" }> | { kind: "edit"; file: string; diff?: string }
 
 type Session = {
   task?: string
+  /** The agent's working directory, if it gave one: paths to and from the agent are relative to it. */
+  root?: string
   turn: Turn
   /** Batches not yet finished; the head may be playing. */
   queue: Batch[]
@@ -94,6 +97,8 @@ type Outcome =
 
 const ok: Outcome = { kind: "ok" }
 
+const cancelled = () => new ToolError("cancelled", "The call was cancelled.")
+
 function fail(error: ErrorKind, message: string): Outcome {
   return { kind: "error", error, message }
 }
@@ -119,13 +124,14 @@ export class Controller {
 
   // ---- Tools -------------------------------------------------------------
 
-  start(task?: string): Promise<Report> {
-    return this.serialize(async () => {
+  start(task?: string, root?: string): Promise<Report> {
+    return this.serialize(undefined, async () => {
       if (this.session && !this.session.ended) {
         throw new ToolError("session_active", "A pairing session is already active in this window.")
       }
       const s: Session = {
         task,
+        root,
         turn: "agent",
         queue: [],
         finished: [],
@@ -150,8 +156,8 @@ export class Controller {
     })
   }
 
-  step(actions: Action[]): Promise<Report> {
-    return this.serialize(() => {
+  step(actions: Action[], signal?: AbortSignal): Promise<Report> {
+    return this.serialize(signal, () => {
       const s = this.requireSession()
       const batch: Batch = { id: this.nextBatchId++, actions, state: "queued" }
       if (s.stale || s.ended) {
@@ -160,37 +166,50 @@ export class Controller {
         s.queue.push(batch)
         this.kick(s)
       }
-      return this.block("step", { batch })
+      return this.block("step", { batch }, signal)
     })
   }
 
-  listen(): Promise<Report> {
-    return this.serialize(() => {
+  listen(signal?: AbortSignal): Promise<Report> {
+    return this.serialize(signal, () => {
       this.requireSession()
-      return this.block("listen", {})
+      return this.block("listen", {}, signal)
     })
   }
 
-  end(summary?: string): Promise<Report> {
-    return this.serialize(() => {
+  end(summary?: string, signal?: AbortSignal): Promise<Report> {
+    return this.serialize(signal, () => {
       this.requireSession()
-      return this.block("end", { summary })
+      return this.block("end", { summary }, signal)
     })
   }
 
   read(file: string, fromLine?: number, toLine?: number): Promise<FileContent> {
-    this.requireSession()
-    const path = this.editor.resolvePath(file)
+    const s = this.requireSession()
+    const path = this.resolvePath(s, file)
     return (async () => {
       const lines = splitLines(await this.editor.getText(path))
       const from = Math.max(1, fromLine ?? 1)
       const to = Math.min(lines.length, toLine ?? lines.length)
       return {
-        file: this.editor.displayPath(path),
+        file: this.displayPath(s, path),
         dirty: await this.editor.isDirty(path),
         lines: lines.slice(from - 1, to).map((text, i) => ({ number: from + i, text })),
       }
     })()
+  }
+
+  /**
+   * Puts a report back to be delivered again. For a report that raced with a cancellation: the
+   * call returned just before the cancellation arrived, so the agent never saw the report.
+   */
+  restore(report: Report): void {
+    const s = this.activeSession()
+    if (!s) return
+    s.finished.unshift(...report.batches)
+    s.events.unshift(...report.events)
+    if (report.events.length > 0 || report.batches.some((b) => b.status !== "completed")) s.stale = true
+    this.update()
   }
 
   // ---- Programmer input --------------------------------------------------
@@ -318,8 +337,10 @@ export class Controller {
 
   // ---- Calls and reports -------------------------------------------------
 
-  private serialize<T>(fn: () => Promise<T>): Promise<T> {
-    const run = this.chain.then(fn, fn)
+  /** Runs tool calls one at a time. A call cancelled while waiting its turn never runs. */
+  private serialize<T>(signal: AbortSignal | undefined, fn: () => Promise<T>): Promise<T> {
+    const guarded = () => (signal?.aborted ? Promise.reject(cancelled()) : fn())
+    const run = this.chain.then(guarded, guarded)
     this.chain = run.catch(() => {})
     return run
   }
@@ -335,15 +356,27 @@ export class Controller {
     return this.session && !this.session.ended ? this.session : null
   }
 
-  private block(kind: Call["kind"], opts: { batch?: Batch; summary?: string }): Promise<Report> {
+  /**
+   * Blocks until the call is ready to report. Cancelling releases the call without taking a
+   * report, so nothing is lost: a submitted batch stays queued and is reported on the next call.
+   */
+  private block(kind: Call["kind"], opts: { batch?: Batch; summary?: string }, signal?: AbortSignal): Promise<Report> {
     return new Promise((resolve, reject) => {
-      this.call = {
+      const call: Call = {
         kind,
         ...opts,
         resolve,
         reject,
         timer: setTimeout(() => this.finishCall(true), this.config.maxBlockMs),
       }
+      this.call = call
+      signal?.addEventListener("abort", () => {
+        if (this.call !== call) return
+        this.call = null
+        clearTimeout(call.timer)
+        reject(cancelled())
+        this.render()
+      })
       this.update()
     })
   }
@@ -404,10 +437,14 @@ export class Controller {
         events.push(e)
         continue
       }
+      if (e.diff !== undefined) {
+        events.push({ kind: "edit", file: e.file, diff: e.diff })
+        continue
+      }
       const before = s.baselines.get(e.file) ?? ""
       const after = s.latest.get(e.file) ?? before
       if (before === after) continue
-      const file = this.editor.displayPath(e.file)
+      const file = this.displayPath(s, e.file)
       events.push({ kind: "edit", file, diff: fileDiff(file, before, after) })
     }
     s.finished = []
@@ -429,7 +466,7 @@ export class Controller {
   private async cursorInfo(s: Session): Promise<CursorInfo | undefined> {
     if (!s.cursor) return undefined
     const text = await this.editor.getText(s.cursor.file)
-    const info: CursorInfo = { file: this.editor.displayPath(s.cursor.file), ...position(text, s.cursor.offset) }
+    const info: CursorInfo = { file: this.displayPath(s, s.cursor.file), ...position(text, s.cursor.offset) }
     if (s.selection) {
       info.selection = { from: position(text, s.selection.start), to: position(text, s.selection.end) }
     }
@@ -566,7 +603,7 @@ export class Controller {
 
     if ("move" in action) {
       const m = action.move
-      const file = m.file !== undefined ? this.editor.resolvePath(m.file) : s.cursor?.file
+      const file = m.file !== undefined ? this.resolvePath(s, m.file) : s.cursor?.file
       if (!file) return fail("no_file", "The agent cursor isn't in a file yet; give `file`.")
       if (!(await this.delay(s, this.config.beatMs))) return { kind: "interrupted" }
       await this.editor.show(file)
@@ -620,7 +657,7 @@ export class Controller {
 
     if ("point" in action) {
       const p = action.point
-      const file = p.file !== undefined ? this.editor.resolvePath(p.file) : s.cursor?.file
+      const file = p.file !== undefined ? this.resolvePath(s, p.file) : s.cursor?.file
       if (!file) return fail("no_file", "The agent cursor isn't in a file yet; give `file`.")
       if (s.turn === "agent") await this.editor.show(file)
       const text = await this.editor.getText(file)
@@ -686,6 +723,18 @@ export class Controller {
       s.selection = { start: map(s.selection.start), end: map(s.selection.end) }
     }
     if (s.point?.file === file) s.point = { file, start: map(s.point.start), end: map(s.point.end) }
+  }
+
+  // ---- Paths ---------------------------------------------------------------
+
+  private resolvePath(s: Session, file: string): string {
+    return s.root ? nodePath.resolve(s.root, file) : this.editor.resolvePath(file)
+  }
+
+  private displayPath(s: Session, file: string): string {
+    if (!s.root) return this.editor.displayPath(file)
+    const rel = nodePath.relative(s.root, file)
+    return rel.startsWith("..") || nodePath.isAbsolute(rel) ? file : rel
   }
 
   // ---- Rendering -----------------------------------------------------------
