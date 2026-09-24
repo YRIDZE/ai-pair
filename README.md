@@ -20,9 +20,9 @@ MCP, so the agent keeps all its usual tools.
 
 You need **VS Code 1.105 or newer**.
 
-### From a `.vsix`
+### From the prebuilt `.vsix`
 
-If someone gave you `ai-pair-0.1.0.vsix`:
+The repository includes a packaged extension, `ai-pair-0.1.0.vsix`:
 
 ```sh
 code --install-extension ai-pair-0.1.0.vsix
@@ -149,8 +149,15 @@ npm run test:integration  # plays a session inside a real, isolated VS Code (mac
 npm run package           # production build → ai-pair-<version>.vsix
 ```
 
+The committed `.vsix` doesn't update itself: run `npm run package` and commit
+the result when a change should reach people installing from it.
+
 To run your working copy, open the repository in VS Code and press F5, or:
 
 ```sh
 code --extensionDevelopmentPath="$PWD/packages/vscode" <a project folder>
 ```
+
+## License
+
+[MIT](LICENSE)

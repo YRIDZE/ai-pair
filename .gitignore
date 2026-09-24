@@ -1,4 +1,5 @@
 node_modules/
 dist/
-*.vsix
 dist-test/
+# Copied from the root LICENSE when packaging.
+packages/vscode/LICENSE

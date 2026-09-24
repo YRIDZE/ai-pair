@@ -4,7 +4,11 @@ import * as fs from "node:fs"
 import * as esbuild from "esbuild"
 
 const production = process.argv.includes("--production")
-if (production) fs.rmSync("dist", { recursive: true, force: true })
+if (production) {
+  fs.rmSync("dist", { recursive: true, force: true })
+  // The package needs its license next to it; the source of truth is the repository's.
+  fs.copyFileSync("../../LICENSE", "LICENSE")
+}
 
 const common = {
   bundle: true,
