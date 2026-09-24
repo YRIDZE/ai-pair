@@ -25,7 +25,8 @@ export function panelHtml(cspSource: string): string {
   #app { display: flex; flex-direction: column; height: 100%; }
 
   header { flex: none; padding: 10px 12px 10px; border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, transparent); }
-  .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .row { display: flex; align-items: center; gap: 6px; }
+  .row button { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #status-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   #status { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; color: var(--vscode-descriptionForeground); white-space: nowrap; overflow: hidden; }
   #status-text { overflow: hidden; text-overflow: ellipsis; }
