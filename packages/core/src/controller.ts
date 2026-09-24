@@ -18,7 +18,7 @@ import { ToolError } from "@ai-pair/protocol"
 import { resolveAnchor, resolveSpan, type Resolution } from "./anchors"
 import { fileDiff } from "./diff"
 import type { AgentState, Change, CursorView, EditorPort, PanelPort } from "./ports"
-import { eolOf, isLineStart, position, splitLines } from "./text"
+import { eolOf, isLineStart, lineEnd, position, splitLines } from "./text"
 import { Timeline } from "./timeline"
 import { defaultTiming, withOverrides, type Timing, type TimingOverrides } from "./timing"
 import { planTyping, readingTime } from "./typing"
@@ -609,7 +609,11 @@ export class Controller {
       await this.editor.show(file)
       const text = await this.editor.getText(file)
       let offset: number
-      if (m.position === "file_end") offset = text.length
+      if (m.lines !== undefined) {
+        if (s.cursor?.file !== file) return fail("no_file", "`lines` moves relative to your cursor, in its file.")
+        const line = position(text, s.cursor.offset).line + m.lines
+        offset = lineEnd(text, Math.max(1, Math.min(splitLines(text).length, line)))
+      } else if (m.position === "file_end") offset = text.length
       else if (m.position === "file_start" || m.text === undefined) offset = 0
       else {
         const from = s.cursor?.file === file ? s.cursor.offset : 0

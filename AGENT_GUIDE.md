@@ -133,24 +133,32 @@ ambiguous *and* expensive to reverse. Don't ask permission for routine steps.
 
 The programmer watches every keystroke, so type the way a person would.
 
-- **Make room first.** Never type in front of existing text on the same line:
-  everything after your cursor would be pushed along as you type. To add a
-  line or a block, put the cursor at the *end* of the line before it (or on an
-  empty line) and start with the newline.
+- **Never type in front of existing text** on the same line: everything after
+  your cursor would be pushed along as you type. To add a line or a block, go
+  to the *end* of the line before it, or to an empty line.
+- **Make all the room first.** Before typing a block, create the empty lines
+  around it, including the blank line that will separate it from the code
+  below. Then type the block into that gap. The code below should move down to
+  make space before you write, not get a blank line after you're done. When you
+  need to step up into the gap you made, use `move: { lines: -1 }`.
 - **Delimiters before contents.** For anything that encloses (braces,
   brackets, parentheses spanning lines, tags), type the opening and the
   closing first, each at its correct indentation. Then move back inside and
   type the contents.
-- **Separating blank lines come with the skeleton**, not as an afterthought.
 
-Adding a function after another one:
+Adding a function between two others, separated by a blank line:
 
 ```
-move   text: "}\n", near_line: 12             lands on the blank line after the previous function
-type   "\nfunction update() {\n}\n"          room, and the block's skeleton
+move   text: "}", near_line: 12               the end of the previous function's last line
+type   "\n\n"                                 a blank line, and an empty line to type into;
+                                              the existing blank line stays below it
+type   "function update() {\n}"               the skeleton, into the gap
 move   text: "function update() {", direction: backward
 type   "\n  ...the body..."                  the contents, inside
 ```
+
+If there's no blank line below yet, make one too: `type "\n\n\n"`, then step
+up into the middle with `move: { lines: -1 }`.
 
 Adding an import below an existing one: move to the end of that line
 (`text: 'import express from "express";'`), then type `"\nimport …"`.

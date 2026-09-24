@@ -34,6 +34,11 @@ const Action = z.union([
         text: anchor.text.optional(),
         at: z.enum(["start", "end"]).optional().describe("Put the cursor at the start or end (default) of the match."),
         position: z.enum(["file_start", "file_end"]).optional().describe("Instead of `text`."),
+        lines: z
+          .number()
+          .int()
+          .optional()
+          .describe("Instead of `text`: this many lines down (negative: up) from your cursor, to the end of that line. Like arrow keys."),
       })
       .describe("Move your cursor, to the end of an anchor's match (\"after this text\") or to a position."),
   }),
@@ -46,7 +51,7 @@ const Action = z.union([
     type: z
       .string()
       .describe(
-        "Type at your cursor at a human pace, replacing the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Type like a human: never in front of existing text on the same line (go to the end of the previous line and start with a newline), and for blocks, type the opening and closing delimiters first, then move back inside for the contents.",
+        "Type at your cursor at a human pace, replacing the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Type like a human: never in front of existing text on the same line; make the room a block needs first (the empty lines around it, then step into the gap with `move: { lines: -1 }`); and type a block's opening and closing delimiters before its contents.",
       ),
   }),
   z.object({

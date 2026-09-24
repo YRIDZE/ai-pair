@@ -193,7 +193,7 @@ type FileContent = {
 ```ts
 type Action =
   | { say: string }
-  | { move: (Anchor | { position: "file_start" | "file_end" })
+  | { move: (Anchor | { position: "file_start" | "file_end" } | { lines: number })
             & { file?: string, at?: "start" | "end" } }
   | { select: Anchor | { from: Anchor, to: Anchor } }
   | { type: string }
@@ -227,7 +227,10 @@ resolve in the current file. The cursor goes to
 the `start` or `end` of the anchor match (default: `end`, i.e. "after").
 Clears any selection. See [Anchors](#anchors).
 
-Instead of an anchor, `position: "file_start"` or `"file_end"` may be given.
+Instead of an anchor, `position: "file_start"` or `"file_end"` may be given, or
+`lines: n`: n lines down (negative: up) from the agent cursor, to the end of
+that line, like arrow keys. It's what the agent needs to step into space it
+has just made.
 
 ### `select`
 

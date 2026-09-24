@@ -93,6 +93,21 @@ describe("editing", () => {
     ])
   })
 
+  it("moves by lines, to the end of the line, to type into a gap made first", async () => {
+    const { editor, controller } = setup({ "a.ts": "a\nb\n" })
+    await controller.start()
+    await controller.step([
+      { move: { file: "a.ts", text: "a" } },
+      { type: "\n\n\n" },
+      { move: { lines: -1 } },
+      { type: "new" },
+      { move: { lines: -10 } },
+      { type: "!" },
+    ])
+    await until(controller.step([]))
+    expect(editor.text("a.ts")).toBe("a!\n\nnew\n\nb\n")
+  })
+
   it("replaces a selection by typing, and deletes a selection", async () => {
     const { editor, controller } = setup({ "a.ts": "const a = 1\n" })
     await controller.start()

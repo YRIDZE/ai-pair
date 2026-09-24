@@ -11,6 +11,8 @@ export type Span = Anchor | { from: Anchor; to: Anchor }
 export type MoveTarget = (Partial<Anchor> & { position?: "file_start" | "file_end" }) & {
   file?: string
   at?: "start" | "end"
+  /** Relative: this many lines down (negative: up) from the cursor, to the end of that line. */
+  lines?: number
 }
 
 export type Action =
