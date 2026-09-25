@@ -248,7 +248,8 @@ cursor ends after the inserted text.
   understand. It plays at a human-like pace.
 - `type_fast` is for boilerplate the programmer doesn't need to read:
   `public static void Main`, closing braces, imports. It plays several times
-  faster.
+  faster, but changes only the speed: blocks are still closed before their
+  bodies are typed.
 
 Text is inserted **literally**: no auto-closing brackets, no auto-indent, no
 completions. The agent must include indentation itself. Newlines are

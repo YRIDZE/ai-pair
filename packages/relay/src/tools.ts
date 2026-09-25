@@ -51,13 +51,15 @@ const Action = z.union([
     type: z
       .string()
       .describe(
-        "Type at your cursor at a human pace, replacing the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Type like a human: never in front of existing text on the same line; make the room a block needs first (the empty lines around it, then step into the gap with `move: { lines: -1 }`); and type a block's opening and closing delimiters before its contents.",
+        "Type at your cursor at a human pace, replacing the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Type like a human: never in front of existing text on the same line; make the room a block needs first (the empty lines around it, then step into the gap with `move: { lines: -1 }`); and close every pair before writing what goes inside it. Your typing plays slowly on the programmer's screen, and every moment they see an unclosed bracket is a moment of suffering for them: anything with a beginning and an end (a block, but just as much an object literal, a record, an array, a tag, the parentheses of a call or of a parameter list, the header of a `for`, `while` or `if`, a string literal) is typed as its opening and closing first, then step inside and type the contents: `todos.push()` then `todo`; `for () {\\n}` then the condition, then the body; `''` then the text between the quotes. Even for a one-line object or a single-argument call. And fill a pair the moment it's closed, before anything else: never type on past an empty pair and come back to it later; step past its closing delimiter only once it's full. Never type a block, a value, a call or a header left to right with its closing delimiter last.",
       ),
   }),
   z.object({
     type_fast: z
       .string()
-      .describe("Like `type`, several times faster. Only for text the programmer doesn't need to read: imports, closing braces, config."),
+      .describe(
+        "Like `type`, several times faster. Only for text the programmer doesn't need to read: imports, config, boilerplate. It changes the speed, never the order: every rule of `type` still applies, so every block, object, array, tag, call, header and string is closed before its contents, even in boilerplate, config and markup. Never type a file top to bottom with its closing delimiters last.",
+      ),
   }),
   z.object({ delete: z.literal(true).describe("Delete the current selection; `select` first.") }),
   z.object({
