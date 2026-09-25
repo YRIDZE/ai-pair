@@ -1,3 +1,4 @@
+import * as nodePath from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Action } from "@ai-pair/protocol"
 import { advance, setup, testConfig, track, until } from "./fake"
@@ -123,7 +124,7 @@ describe("editing", () => {
     await controller.step([{ move: { file: "new.ts" } }, { type_fast: "x" }])
     await until(controller.step([]))
     expect(editor.text("new.ts")).toBe("x")
-    expect(editor.saved).toEqual(["/project/new.ts"])
+    expect(editor.saved).toEqual([editor.resolvePath("new.ts")])
   })
 
   it("fails a batch on an ambiguous anchor, listing candidates, and discards the next batch", async () => {
@@ -230,7 +231,7 @@ describe("turns", () => {
 
     await controller.step([{ point: { text: "<=" } }, { say: "Careful, this goes one past the end." }])
     await advance(3000)
-    expect(editor.point).toEqual({ file: "/project/a.ts", start: 7, end: 9 })
+    expect(editor.point).toEqual({ file: editor.resolvePath("a.ts"), start: 7, end: 9 })
 
     // Edits are reported once the programmer pauses typing.
     const following = track(controller.listen())
@@ -321,5 +322,181 @@ describe("sessions", () => {
 
     await controller.start("second")
     expect(controller.isActive).toBe(true)
+  })
+
+  it("resolves paths under the agent's root into the editor's canonical form", async () => {
+    const { editor, controller } = setup()
+    editor.resolvePath = (file) => nodePath.resolve("/project", file).toLowerCase()
+    await controller.start(undefined, "/Project")
+    const file = nodePath.resolve("/Project", "A.ts").toLowerCase()
+    await controller.step([{ move: { file: "A.ts" } }, { type: "abc" }])
+    const listening = controller.listen()
+    await advance(1000)
+    editor.controller.userEdit(file, "abc", "XXabc", [{ offset: 0, deleteLength: 0, text: "XX" }])
+    const report = await until(listening)
+    expect(editor.shown).toEqual([file])
+    expect(editor.cursor).toMatchObject({ file, offset: 5 })
+    expect(report.cursor?.file).toBe("a.ts")
+  })
+})
+
+describe("shared selections", () => {
+  const selection = {
+    file: "/project/a.ts",
+    from: { line: 2, column: 1 },
+    to: { line: 2, column: 6 },
+    text: "hello",
+  }
+
+  it("sends the programmer's selection along with a message", async () => {
+    const { panel, controller } = setup({ "a.ts": "x\nhello\n" })
+    await controller.start()
+    const listen = controller.listen()
+    controller.userMessage("what does this do?", selection)
+    const report = await until(listen)
+    expect(report.events).toEqual([{ kind: "message", text: "what does this do?", selection: { ...selection, file: "a.ts" } }])
+    expect(panel.events).toContainEqual({
+      type: "user",
+      text: "what does this do?",
+      ref: { file: "a.ts", line: 2, endLine: 2 },
+    })
+  })
+
+  it("sends it along when the turn is handed back", async () => {
+    const { controller } = setup({ "a.ts": "x\nhello\n" })
+    await controller.start()
+    controller.takeTurn()
+    await until(controller.listen())
+    const listen = controller.listen()
+    controller.handBack("finish this", selection)
+    const report = await until(listen)
+    expect(report.events).toEqual([
+      { kind: "turn", to: "agent", message: "finish this", selection: { ...selection, file: "a.ts" } },
+    ])
+  })
+})
+
+describe("run", () => {
+  it("runs a command, reporting its output and exit code with the batch", async () => {
+    const { editor, panel, controller } = setup({}, { confirmCommands: false })
+    editor.commandScript["npm test"] = { ms: 3000, exitCode: 0, output: "4 passed" }
+    await controller.start(undefined, "/project/sub")
+    await controller.step([{ say: "Let's run the tests." }, { run: "npm test" }])
+    await advance(1000)
+    expect(editor.state).toBe("running")
+
+    const report = await until(controller.step([]))
+    expect(report.batches).toEqual([
+      {
+        id: 1,
+        status: "completed",
+        played: 2,
+        runs: [{ index: 1, command: "npm test", exit_code: 0, output: "4 passed", shell: "bash" }],
+      },
+    ])
+    expect(editor.commands[0]!.options).toMatchObject({ cwd: editor.resolvePath("sub"), waitMs: 120_000 })
+    expect(panel.events.filter((e) => e.type === "run").map((e) => e.type === "run" && e.phase)).toEqual(["running", "done"])
+  })
+
+  it("fails the batch on a nonzero exit, without returning the command as unplayed", async () => {
+    const { editor, controller } = setup({ "a.ts": "" }, { confirmCommands: false })
+    editor.commandScript["npm test"] = { ms: 100, exitCode: 1, output: "1 failed" }
+    await controller.start()
+    await controller.step([{ run: "npm test" }, { say: "All green." }])
+    const next = controller.step([{ say: "Next." }])
+    const report = await until(next)
+    expect(report.batches).toMatchObject([
+      {
+        id: 1,
+        status: "failed",
+        played: 1,
+        unplayed: [{ say: "All green." }],
+        error: { index: 0, kind: "command_failed" },
+        runs: [{ command: "npm test", exit_code: 1, output: "1 failed" }],
+      },
+      { id: 2, status: "discarded" },
+    ])
+  })
+
+  it("leaves a long-running command running after `wait`", async () => {
+    const { editor, controller } = setup({}, { confirmCommands: false })
+    editor.commandScript["npm start"] = { ms: 1_000_000, output: "listening on 3000" }
+    await controller.start()
+    await controller.step([{ run: "npm start", wait: 2 }])
+    const report = await until(controller.step([]))
+    expect(report.batches).toEqual([
+      {
+        id: 1,
+        status: "completed",
+        played: 1,
+        runs: [{ index: 0, command: "npm start", output: "listening on 3000", running: true }],
+      },
+    ])
+  })
+
+  it("stops waiting when the programmer interrupts, reporting the command as still running", async () => {
+    const { editor, controller } = setup({}, { confirmCommands: false })
+    editor.commandScript["npm test"] = { ms: 60_000, exitCode: 0 }
+    await controller.start()
+    await controller.step([{ run: "npm test" }, { say: "Done." }])
+    await advance(500)
+    controller.userInterrupt()
+    const report = await until(controller.listen())
+    expect(report.batches).toMatchObject([
+      { id: 1, status: "interrupted", played: 1, unplayed: [{ say: "Done." }], runs: [{ running: true }] },
+    ])
+  })
+
+  it("doesn't run a command interrupted before its terminal was ready", async () => {
+    const { editor, controller } = setup({}, { confirmCommands: false })
+    editor.commandScript["npm test"] = { startMs: 3000, ms: 100, exitCode: 0 }
+    await controller.start()
+    await controller.step([{ run: "npm test" }])
+    await advance(1000)
+    controller.userInterrupt()
+    const report = await until(controller.listen())
+    expect(report.batches).toEqual([{ id: 1, status: "discarded", played: 0, unplayed: [{ run: "npm test" }] }])
+    expect(editor.commands).toEqual([])
+  })
+
+  it("asks the programmer first, and fails the batch when they decline", async () => {
+    const { editor, panel, controller } = setup()
+    await controller.start()
+    await controller.step([{ run: "rm -rf build" }])
+    await advance(5000)
+    expect(editor.commands).toEqual([])
+    expect(editor.state).toBe("read")
+    const confirm = panel.events.find((e) => e.type === "run" && e.phase === "confirm")
+    expect(confirm).toBeDefined()
+
+    controller.decideRun(confirm!.type === "run" ? confirm!.id : -1, false)
+    const report = await until(controller.listen())
+    expect(report.batches).toMatchObject([
+      { id: 1, status: "failed", played: 0, error: { index: 0, kind: "command_declined" }, unplayed: [{ run: "rm -rf build" }] },
+    ])
+    expect(editor.commands).toEqual([])
+  })
+
+  it("runs once the programmer allows it", async () => {
+    const { editor, panel, controller } = setup()
+    await controller.start()
+    await controller.step([{ run: "npm test" }])
+    await advance(10)
+    const confirm = panel.events.find((e) => e.type === "run" && e.phase === "confirm")
+    controller.decideRun(confirm!.type === "run" ? confirm!.id : -1, true)
+    const report = await until(controller.step([]))
+    expect(report.batches[0]).toMatchObject({ status: "completed", runs: [{ command: "npm test", exit_code: 0 }] })
+    expect(editor.commands.map((c) => c.command)).toEqual(["npm test"])
+  })
+
+  it("is not allowed during the programmer's turn", async () => {
+    const { editor, controller } = setup({}, { confirmCommands: false })
+    await controller.start()
+    controller.takeTurn()
+    await until(controller.listen())
+    await controller.step([{ run: "npm test" }])
+    const report = await until(controller.listen())
+    expect(report.batches[0]).toMatchObject({ status: "failed", error: { kind: "not_your_turn" } })
+    expect(editor.commands).toEqual([])
   })
 })

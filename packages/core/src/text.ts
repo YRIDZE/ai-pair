@@ -40,3 +40,20 @@ export function isLineStart(text: string, offset: number): boolean {
 export function eolOf(text: string): string {
   return text.includes("\r\n") ? "\r\n" : "\n"
 }
+
+/** Raw terminal output as plain text: no escape sequences, carriage-return overwrites resolved. */
+export function terminalText(raw: string): string {
+  const plain = raw
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b[@-Z\\-_]/g, "")
+  return plain
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => {
+      const parts = line.split("\r").filter((p) => p !== "")
+      return (parts.at(-1) ?? "").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "").trimEnd()
+    })
+    .join("\n")
+    .trim()
+}

@@ -11,6 +11,7 @@ export class Timeline {
   private paused = false
   private interrupted = false
   private pending: Pending | null = null
+  private abort = new AbortController()
 
   constructor(paused: boolean) {
     this.paused = paused
@@ -20,9 +21,15 @@ export class Timeline {
     return this.interrupted
   }
 
+  /** Aborted when playback is interrupted, for waits that aren't delays. */
+  get signal(): AbortSignal {
+    return this.abort.signal
+  }
+
   /** Clears the interruption, for the next batch. */
   reset(): void {
     this.interrupted = false
+    if (this.abort.signal.aborted) this.abort = new AbortController()
   }
 
   /** Waits `ms` of unpaused time. Resolves `false` if interrupted. */
@@ -53,6 +60,7 @@ export class Timeline {
 
   interrupt(): void {
     this.interrupted = true
+    this.abort.abort()
     const p = this.pending
     if (!p) return
     clearTimeout(p.timer)

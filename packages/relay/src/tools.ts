@@ -65,6 +65,14 @@ const Action = z.union([
       .union([Anchor.extend({ file: file.optional() }), Range.extend({ file: file.optional() })])
       .describe("Highlight code without editing it or moving your cursor, to talk about it. Put the `say` after it."),
   }),
+  z.object({
+    run: z
+      .string()
+      .describe(
+        "Run a shell command in a terminal the programmer sees: tests, builds, starting the app. They may be asked to allow it. Output, exit code and the terminal's `shell` come back in the batch's `runs`; a nonzero exit fails the batch. Make it the last action of its batch.",
+      ),
+    wait: z.number().optional().describe("Seconds to wait (default 120). For a server, a few: it keeps running."),
+  }),
 ])
 
 export const TOOLS = {
@@ -80,7 +88,7 @@ export const TOOLS = {
 
 Pipelined: the call queues the batch and returns once the PREVIOUS batch has finished playing, with that batch's report. So plan the next batch while this one plays. The first call returns immediately.
 
-Read every report. If a batch was interrupted or failed, or the programmer said or did something (\`events\`), your later batches were discarded; their actions come back in \`unplayed\`. Take what happened into account and re-plan. \`partial.typed\` says exactly what made it into the file. With \`waiting: true\`, nothing has finished yet: carry on as usual.
+Read every report. If a batch was interrupted or failed, or the programmer said or did something (\`events\`), your later batches were discarded; their actions come back in \`unplayed\`. Take what happened into account and re-plan. \`partial.typed\` says exactly what made it into the file. A message with a \`selection\` is about the code the programmer had selected. With \`waiting: true\`, nothing has finished yet: carry on as usual.
 
 An empty batch waits for your queued batches without waiting for the programmer.`,
     inputSchema: {
@@ -89,7 +97,7 @@ An empty batch waits for your queued batches without waiting for the programmer.
   },
   listen: {
     description:
-      "Wait for the programmer. First collects the reports of your queued batches, then returns when the programmer does something: a message, an edit, a turn change, or ending the session. Call it whenever you're done or waiting: during a session, never end your turn. During the programmer's turn you're the navigator (only `say` and `point` work), and `listen` also returns shortly after they stop typing, so you can comment. With `waiting: true`, nothing happened yet: call it again.",
+      "Wait for the programmer. First collects the reports of your queued batches, then returns when the programmer does something: a message (with a `selection` when they asked about code they had selected), an edit, a turn change, or ending the session. Call it whenever you're done or waiting: during a session, never end your turn. During the programmer's turn you're the navigator (only `say` and `point` work), and `listen` also returns shortly after they stop typing, so you can comment. With `waiting: true`, nothing happened yet: call it again.",
     inputSchema: {},
   },
   end: {

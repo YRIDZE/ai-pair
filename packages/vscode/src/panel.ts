@@ -1,21 +1,22 @@
 // The narration panel: a webview view in the secondary side bar. See "Narration panel" in DESIGN.md.
 
 import * as vscode from "vscode"
-import type { Controller, PanelEvent, PanelPort } from "@ai-pair/core"
+import type { Controller, PanelEvent, PanelPort, Ref, SharedSelection } from "@ai-pair/core"
 import { panelHtml } from "./panelHtml"
 
 /** Messages from the webview. */
 type FromPanel =
   | { type: "ready" }
-  | { type: "reply"; text: string }
+  | { type: "reply"; text: string; attach?: boolean }
   | { type: "draft"; empty: boolean }
   | { type: "pause" }
   | { type: "resume" }
   | { type: "interrupt" }
-  | { type: "turn"; message?: string }
+  | { type: "turn"; message?: string; attach?: boolean }
   | { type: "end" }
   | { type: "open"; file: string; line: number }
   | { type: "speed"; value: number }
+  | { type: "runDecision"; id: number; run: boolean }
 
 const MAX_LOG = 400
 
@@ -29,7 +30,13 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
   constructor(
     private readonly resolvePath: (file: string) => string,
     private readonly speed: { get: () => number; set: (value: number) => void },
+    private readonly selection: { current: () => SharedSelection | undefined; ref: () => Ref | undefined },
   ) {}
+
+  /** The programmer's selection changed. Not logged: only the current one matters. */
+  showSelection(ref: Ref | undefined): void {
+    void this.view?.webview.postMessage({ type: "selection", ref })
+  }
 
   /** The speed setting changed. Not logged: only the current value matters. */
   showSpeed(value: number): void {
@@ -40,7 +47,10 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
     this.log.push(event)
     if (this.log.length > MAX_LOG) this.log.splice(0, this.log.length - MAX_LOG)
     void this.view?.webview.postMessage(event)
-    if (event.type === "session" && event.active) this.reveal()
+    if (event.type === "session") {
+      void vscode.commands.executeCommand("setContext", "aiPair.active", event.active)
+      if (event.active) this.reveal()
+    }
   }
 
   focusReply(): void {
@@ -69,6 +79,7 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
       case "ready":
         void this.view?.webview.postMessage({ type: "replay", events: this.log })
         this.showSpeed(this.speed.get())
+        this.showSelection(this.selection.ref())
         return
       case "speed":
         this.speed.set(m.value)
@@ -76,7 +87,7 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
       case "reply":
         // Replying means "go on with this", so any pause ends.
         c?.resume()
-        c?.userMessage(m.text)
+        c?.userMessage(m.text, m.attach ? this.selection.current() : undefined)
         return
       case "draft":
         // Typing a reply pauses playback, the way a pair stops when you start talking.
@@ -94,11 +105,14 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
         return
       case "turn":
         c?.resume()
-        if (c?.turn === "user") c.handBack(m.message)
+        if (c?.turn === "user") c.handBack(m.message, m.attach ? this.selection.current() : undefined)
         else c?.takeTurn()
         return
       case "end":
         c?.endSession()
+        return
+      case "runDecision":
+        c?.decideRun(m.id, m.run)
         return
       case "open": {
         const uri = vscode.Uri.file(this.resolvePath(m.file))

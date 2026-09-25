@@ -23,6 +23,7 @@ export type Action =
   | { type_fast: string }
   | { delete: true }
   | { point: Span & { file?: string } }
+  | { run: string; wait?: number }
 
 export type Turn = "agent" | "user"
 
@@ -35,8 +36,23 @@ export type ErrorKind =
   | "no_file"
   | "not_your_turn"
   | "invalid_action"
+  | "command_failed"
+  | "command_declined"
 
 export type Candidate = { line: number; context: string }
+
+export type RunResult = {
+  index: number
+  command: string
+  /** Absent when the command is still running, or its exit code couldn't be observed. */
+  exit_code?: number
+  output: string
+  truncated?: true
+  /** Still running: `wait` elapsed, or playback was interrupted. It keeps running in the terminal. */
+  running?: true
+  /** The terminal's shell, e.g. `pwsh` or `zsh`, when it's known. */
+  shell?: string
+}
 
 export type BatchResult = {
   id: number
@@ -45,13 +61,25 @@ export type BatchResult = {
   partial?: { index: number; typed: string }
   unplayed?: Action[]
   error?: { index: number; kind: ErrorKind; message?: string; candidates?: Candidate[] }
+  runs?: RunResult[]
+}
+
+export type LineColumn = { line: number; column: number }
+
+/** Code the programmer had selected when they wrote a message. */
+export type Excerpt = {
+  file: string
+  from: LineColumn
+  to: LineColumn
+  text: string
+  truncated?: true
 }
 
 export type Event =
-  | { kind: "message"; text: string }
+  | { kind: "message"; text: string; selection?: Excerpt }
   | { kind: "edit"; file: string; diff: string }
   | { kind: "interrupt" }
-  | { kind: "turn"; to: Turn; message?: string }
+  | { kind: "turn"; to: Turn; message?: string; selection?: Excerpt }
   | { kind: "end" }
 
 export type CursorInfo = {

@@ -19,12 +19,17 @@ export function activate(context: vscode.ExtensionContext): Api {
     get: () => config().get("speed", 1),
     set: (value: number) => void config().update("speed", value, vscode.ConfigurationTarget.Global),
   }
-  const panel = new NarrationPanel((file) => editor.resolvePath(file), speed)
+  const panel = new NarrationPanel((file) => editor.resolvePath(file), speed, {
+    current: () => editor.programmerSelection(),
+    ref: () => editor.selectionRef(),
+  })
   const controller = new Controller(editor, panel)
   editor.controller = controller
+  editor.onSelection = (ref) => panel.showSelection(ref)
   panel.controller = controller
   controller.setSpeed(speed.get())
   controller.setTiming(config().get("timing", {}))
+  controller.setConfirmCommands(config().get("confirmCommands", true))
 
   const bridge = new Bridge(controller, {
     dir: discoveryDir(),
@@ -52,6 +57,9 @@ export function activate(context: vscode.ExtensionContext): Api {
       }
       if (e.affectsConfiguration("aiPair.timing")) controller.setTiming(config().get("timing", {}))
       if (e.affectsConfiguration("aiPair.agentName")) editor.setAgentName(config().get("agentName", "Agent"))
+      if (e.affectsConfiguration("aiPair.confirmCommands")) {
+        controller.setConfirmCommands(config().get("confirmCommands", true))
+      }
     }),
     vscode.commands.registerCommand("aiPair.playDemo", () => {
       if (!vscode.workspace.workspaceFolders?.length) {
@@ -71,6 +79,7 @@ export function activate(context: vscode.ExtensionContext): Api {
     }),
     vscode.commands.registerCommand("aiPair.endSession", () => controller.endSession()),
     vscode.commands.registerCommand("aiPair.focusReply", () => panel.focusReply()),
+    vscode.commands.registerCommand("aiPair.askAboutSelection", () => panel.focusReply()),
     { dispose: () => controller.disconnect() },
   )
   if (!context.globalState.get("aiPair.offeredSetup")) {

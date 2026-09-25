@@ -1,8 +1,19 @@
+import * as nodePath from "node:path"
 import { vi } from "vitest"
 import { Controller, defaultConfig, type Config } from "../src/controller"
-import type { AgentState, CursorView, EditOptions, EditorPort, PanelEvent, PanelPort } from "../src/ports"
+import type {
+  AgentState,
+  CommandOutcome,
+  CursorView,
+  EditOptions,
+  EditorPort,
+  PanelEvent,
+  PanelPort,
+  RunOptions,
+} from "../src/ports"
 
-const ROOT = "/project/"
+/** `/project` in this platform's form (`C:\project` on Windows), as the controller resolves it. */
+const ROOT = nodePath.resolve("/project")
 
 export class FakeEditor implements EditorPort {
   files = new Map<string, string>()
@@ -16,10 +27,11 @@ export class FakeEditor implements EditorPort {
   controller!: Controller
 
   resolvePath(file: string): string {
-    return file.startsWith("/") ? file : ROOT + file
+    return nodePath.resolve(ROOT, file)
   }
   displayPath(file: string): string {
-    return file.startsWith(ROOT) ? file.slice(ROOT.length) : file
+    const rel = nodePath.relative(ROOT, file)
+    return rel.startsWith("..") || nodePath.isAbsolute(rel) ? file : rel
   }
   async getText(file: string): Promise<string> {
     const text = this.files.get(file)
@@ -51,6 +63,33 @@ export class FakeEditor implements EditorPort {
     this.point = point
   }
   reveal(): void {}
+
+  commands: { command: string; options: RunOptions }[] = []
+  /**
+   * How each command behaves: its terminal takes `startMs` to get ready, then the command takes `ms`
+   * and exits with `exitCode`, having printed `output`.
+   */
+  commandScript: Record<string, { ms: number; startMs?: number; exitCode?: number; output?: string }> = {}
+  async runCommand(command: string, options: RunOptions): Promise<CommandOutcome> {
+    const script = this.commandScript[command] ?? { ms: 0, exitCode: 0 }
+    if (script.startMs) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, script.startMs)
+        options.signal.addEventListener("abort", () => resolve())
+      })
+      if (options.signal.aborted) return { output: "", notStarted: true }
+    }
+    this.commands.push({ command, options })
+    const output = script.output ?? ""
+    const finished = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(script.ms <= options.waitMs), Math.min(script.ms, options.waitMs))
+      options.signal.addEventListener("abort", () => {
+        clearTimeout(timer)
+        resolve(false)
+      })
+    })
+    return finished ? { exitCode: script.exitCode, output, shell: "bash" } : { output, running: true }
+  }
 
   /** The programmer types into a file. */
   userEdit(name: string, offset: number, deleteLength: number, text: string): void {

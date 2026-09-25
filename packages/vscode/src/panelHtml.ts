@@ -62,6 +62,10 @@ export function panelHtml(cspSource: string): string {
     border-color: var(--vscode-focusBorder);
   }
   #reply::placeholder { color: var(--vscode-input-placeholderForeground); }
+  #attach { display: none; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; color: var(--vscode-descriptionForeground); }
+  #attach.on { display: flex; }
+  #attach-ref { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #attach button { padding: 0 6px; font-size: 11px; line-height: 1.4; }
 
   #now { flex: none; padding: 16px 14px 0; }
   #now-text {
@@ -77,6 +81,15 @@ export function panelHtml(cspSource: string): string {
   #reading { height: 3px; margin: 10px 0 0 15px; border-radius: 2px; visibility: hidden; background: color-mix(in srgb, var(--read) 18%, transparent); }
   #reading.on { visibility: visible; }
   #reading-fill { height: 100%; width: 0; border-radius: 2px; background: var(--read); }
+  #run { display: none; margin: 10px 0 0 15px; padding: 7px 9px; border-radius: 3px; font-size: 12px; border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.3)); }
+  #run.on { display: block; }
+  #run.confirm { border-color: var(--read); }
+  #run-label { color: var(--vscode-descriptionForeground); margin-bottom: 4px; }
+  #run-cmd { font-family: var(--vscode-editor-font-family); white-space: pre-wrap; overflow-wrap: anywhere; }
+  #run-actions { display: none; gap: 6px; margin-top: 8px; }
+  #run.confirm #run-actions { display: flex; }
+  #run-go { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+  #run-go:hover { background: var(--vscode-button-hoverBackground); }
 
   #history { flex: 1; overflow-y: auto; padding: 14px 14px 18px; font-size: 12.5px; color: var(--vscode-descriptionForeground); }
   .entry { padding: 5px 0; line-height: 1.45; overflow-wrap: anywhere; }
@@ -106,11 +119,17 @@ export function panelHtml(cspSource: string): string {
       <button id="end" disabled title="End the session">End</button>
     </div>
     <textarea id="reply" rows="1" placeholder="Reply to the agent… (Enter to send)" disabled></textarea>
+    <div id="attach"><span>With selection</span><a id="attach-ref"></a><button id="attach-x" title="Don't send the selection">×</button></div>
   </header>
   <section id="now">
     <div id="now-text" class="empty">No active session. Ask your agent to pair with you, or run <em>AI Pair: Play Demo Session</em>. First time? Run <em>AI Pair: Set Up Agent</em>.</div>
     <div id="now-ref"></div>
     <div id="reading"><div id="reading-fill"></div></div>
+    <div id="run">
+      <div id="run-label"></div>
+      <div id="run-cmd"></div>
+      <div id="run-actions"><button id="run-go">Run</button><button id="run-skip">Skip</button></div>
+    </div>
   </section>
   <section id="history"></section>
 </div>
@@ -121,8 +140,12 @@ export function panelHtml(cspSource: string): string {
     dot: $("dot"), status: $("status-text"), pause: $("pause"), interrupt: $("interrupt"),
     turn: $("turn"), end: $("end"), reply: $("reply"), now: $("now-text"), ref: $("now-ref"),
     reading: $("reading"), fill: $("reading-fill"), history: $("history"),
+    attach: $("attach"), attachRef: $("attach-ref"), attachX: $("attach-x"),
+    run: $("run"), runLabel: $("run-label"), runCmd: $("run-cmd"), runGo: $("run-go"), runSkip: $("run-skip"),
   };
   let active = false, turn = "agent", paused = false, replaying = false;
+  let selection = null, selectionDismissed = false;   // the programmer's selection, offered with the reply
+  let runId = null;     // the command shown in the run box
   let current = null;   // text of the current message
   let reading = null;   // { ms, elapsed, last }
 
@@ -134,6 +157,25 @@ export function panelHtml(cspSource: string): string {
     el.className = "entry" + (kind ? " " + kind : "");
     el.innerHTML = html;
     ui.history.prepend(el);
+    return el;
+  }
+
+  function refLink(ref) {
+    const a = document.createElement("a");
+    a.textContent = ref.file + ":" + ref.line + (ref.endLine > ref.line ? "–" + ref.endLine : "");
+    a.onclick = () => vscode.postMessage({ type: "open", file: ref.file, line: ref.line });
+    return a;
+  }
+
+  function addYou(text, ref) {
+    const el = addHistory(text ? rich(text) : "", "you");
+    if (ref) { if (text) el.append(" "); el.append(refLink(ref)); }
+  }
+
+  const attaching = () => active && selection !== null && !selectionDismissed;
+  function syncAttach() {
+    ui.attach.classList.toggle("on", attaching());
+    if (attaching()) ui.attachRef.replaceChildren(refLink(selection));
   }
 
   function setNow(text) {
@@ -166,6 +208,7 @@ export function panelHtml(cspSource: string): string {
   const STATUS = {
     typing: ["", "Agent is typing"],
     read: ["read", "Read this"],
+    running: ["", "Agent is running a command"],
     thinking: ["dim", "Agent is thinking"],
     paused: ["dim", "Paused"],
     listening: ["ring", "Your move"],
@@ -191,7 +234,9 @@ export function panelHtml(cspSource: string): string {
       ui.dot.className = "dot off";
       ui.status.textContent = "No session";
       reading = null; ui.reading.classList.remove("on");
+      runId = null; ui.run.className = "";
     }
+    syncAttach();
   }
 
   function handle(e) {
@@ -220,11 +265,11 @@ export function panelHtml(cspSource: string): string {
       case "say": setNow(e.text); return;
       case "reading": startReading(e.ms); return;
       case "state": setState(e); return;
-      case "user": addHistory(rich(e.text), "you"); return;
+      case "user": addYou(e.text, e.ref); return;
       case "interrupt": addHistory("You interrupted.", "note"); return;
       case "turn":
         addHistory(e.to === "user" ? "You took the turn." : "You handed the turn back.", "note");
-        if (e.message) addHistory(rich(e.message), "you");
+        if (e.message || e.ref) addYou(e.message, e.ref);
         ui.reply.placeholder = e.to === "user" ? "Ask the agent… (Enter to send)" : "Reply to the agent… (Enter to send)";
         return;
       case "point": {
@@ -234,6 +279,29 @@ export function panelHtml(cspSource: string): string {
         ui.ref.replaceChildren(a);
         return;
       }
+      case "run": {
+        if (e.phase === "confirm" || e.phase === "running") {
+          runId = e.id;
+          ui.run.className = "on" + (e.phase === "confirm" ? " confirm" : "");
+          ui.runLabel.textContent = e.phase === "confirm" ? "Run this in the terminal?" : "Running in the terminal…";
+          ui.runCmd.textContent = e.command;
+          return;
+        }
+        if (runId === e.id) { runId = null; ui.run.className = ""; }
+        const cmd = "<code>" + esc(e.command) + "</code>";
+        const note = {
+          done: "Ran " + cmd + (e.exitCode === undefined ? "" : " · exit " + e.exitCode),
+          background: cmd + " keeps running in the terminal",
+          declined: "Didn't run " + cmd,
+        }[e.phase];
+        addHistory(note, "note");
+        return;
+      }
+      case "selection":
+        selection = e.ref || null;
+        selectionDismissed = false;
+        syncAttach();
+        return;
       case "focusReply": ui.reply.focus(); return;
       case "speed":
         for (const b of document.querySelectorAll("#speed button")) {
@@ -266,17 +334,28 @@ export function panelHtml(cspSource: string): string {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       const text = takeDraft();
-      if (text) vscode.postMessage({ type: "reply", text });
+      if (text) vscode.postMessage({ type: "reply", text, attach: takeAttach() });
     } else if (e.key === "Escape") {
       ui.reply.blur();
     }
   });
   ui.pause.onclick = () => vscode.postMessage({ type: paused ? "resume" : "pause" });
   ui.interrupt.onclick = () => vscode.postMessage({ type: "interrupt" });
+  function takeAttach() {
+    const on = attaching();
+    if (on) { selectionDismissed = true; syncAttach(); }
+    return on;
+  }
+
   ui.turn.onclick = () => {
-    const message = turn === "user" ? takeDraft() : "";
-    vscode.postMessage(message ? { type: "turn", message } : { type: "turn" });
+    const handingBack = turn === "user";
+    const message = handingBack ? takeDraft() : "";
+    const attach = handingBack && takeAttach();
+    vscode.postMessage({ type: "turn", ...(message ? { message } : {}), ...(attach ? { attach } : {}) });
   };
+  ui.attachX.onclick = () => { selectionDismissed = true; syncAttach(); };
+  ui.runGo.onclick = () => { if (runId !== null) vscode.postMessage({ type: "runDecision", id: runId, run: true }); };
+  ui.runSkip.onclick = () => { if (runId !== null) vscode.postMessage({ type: "runDecision", id: runId, run: false }); };
   ui.end.onclick = () => vscode.postMessage({ type: "end" });
   for (const b of document.querySelectorAll("#speed button")) {
     b.onclick = () => vscode.postMessage({ type: "speed", value: Number(b.dataset.speed) });

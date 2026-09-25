@@ -76,8 +76,28 @@
         "command": "aiPair.focusReply",
         "title": "Reply to the Agent",
         "category": "AI Pair"
+      },
+      {
+        "command": "aiPair.askAboutSelection",
+        "title": "Ask the Agent About the Selection",
+        "category": "AI Pair"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "aiPair.askAboutSelection",
+          "when": "aiPair.active && editorHasSelection",
+          "group": "navigation@100"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "aiPair.askAboutSelection",
+          "when": "aiPair.active && editorHasSelection"
+        }
+      ]
+    },
     "configuration": {
       "title": "AI Pair",
       "properties": {
@@ -97,6 +117,12 @@
           "type": "object",
           "default": {},
           "markdownDescription": "Calibration: override any playback timing, in milliseconds at normal speed. See `packages/core/src/timing.ts` for every key and its default, e.g. `{ \"afterSelectMs\": 900, \"type\": { \"wordStartMs\": 140 } }`."
+        },
+        "aiPair.confirmCommands": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "Ask in the Pair panel before running each command the agent plays in the terminal (`run`). Turning this off lets the agent run commands without Claude Code's own permission prompt."
         }
       }
     },
