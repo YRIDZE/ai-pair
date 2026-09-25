@@ -24,6 +24,11 @@ pair on…"). In Claude Code you can also run `/mcp__pair__start`.
 
 - **Reply:** type in the panel's reply box and press Enter. Typing pauses
   playback.
+- **Ask about some code:** select it in the editor, then reply; the selection
+  goes along (× leaves it out). Or right-click it: *Ask the Agent About the
+  Selection*.
+- **Commands:** the agent's tests and builds play in an *AI Pair* terminal.
+  Choose **Run**, **Allow for session**, or **Skip** in the panel.
 - **Interrupt:** the button, or just edit the code.
 - **Look around:** scrolling or switching files pauses playback. **Resume**
   brings you back.
@@ -37,3 +42,5 @@ pair on…"). In Claude Code you can also run `/mcp__pair__start`.
 - `aiPair.speed`: overall playback speed.
 - `aiPair.agentName`: the name on the agent's cursor.
 - `aiPair.timing`: fine-tune any typing or pause duration.
+- `aiPair.confirmCommands`: ask before each command the agent runs in the
+  terminal (on by default).
