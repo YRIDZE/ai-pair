@@ -66,6 +66,17 @@ Behavior:
   sending, while the box still has focus.)
 - With text in the reply box, "Your turn" hands back the turn with it as the
   message.
+- **Sharing a selection.** While the programmer has code selected in the
+  editor, a line under the reply box says *With selection
+  `src/server.ts:12–18`*: the reply (or "Your turn") takes the selection
+  along. × leaves it out; the next selection brings the line back. The
+  selection is sent once. *Ask the Agent About the Selection* in the editor's
+  context menu focuses the reply box.
+- **Commands.** When the agent plays a `run`, a box under the current message
+  shows the command with **Run** and **Skip** (unless
+  `aiPair.confirmCommands` is off), with the cursor in its read state. The
+  command then runs in an *AI Pair* terminal, revealed without taking focus,
+  and the history records its exit code.
 - The command *AI Pair: Reply to the Agent* focuses the reply box from the
   editor; bind it to a key of your choice.
 - During the programmer's turn the panel shows "Your turn" prominently; the

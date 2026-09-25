@@ -1,8 +1,8 @@
 // What the core needs from the editor and the narration panel.
 
-import type { Turn } from "@ai-pair/protocol"
+import type { Excerpt, Turn } from "@ai-pair/protocol"
 
-export type AgentState = "typing" | "read" | "thinking" | "paused" | "listening" | "navigator"
+export type AgentState = "typing" | "read" | "running" | "thinking" | "paused" | "listening" | "navigator"
 
 export type CursorView = {
   file: string
@@ -11,6 +11,32 @@ export type CursorView = {
 }
 
 export type EditOptions = { undoStopBefore: boolean; undoStopAfter: boolean }
+
+export type CommandOutcome = {
+  /** Absent while still running, or when the terminal couldn't report it. */
+  exitCode?: number
+  output: string
+  truncated?: boolean
+  running?: boolean
+  /** The terminal's shell, e.g. `pwsh` or `zsh`, when it's known. */
+  shell?: string
+  /** Interrupted before the command was sent to the terminal. */
+  notStarted?: boolean
+}
+
+export type RunOptions = {
+  /** Directory to run in (absolute). */
+  cwd: string
+  /** Stop waiting after this long; the command keeps running. */
+  waitMs: number
+  /** Aborted when playback is interrupted: stop waiting, leave the command running. */
+  signal: AbortSignal
+}
+
+/** An excerpt whose `file` is absolute, as the editor knows it. */
+export type SharedSelection = Excerpt
+
+export type Ref = { file: string; line: number; endLine: number }
 
 /** Files are absolute paths; offsets are into the document text. */
 export interface EditorPort {
@@ -29,6 +55,8 @@ export interface EditorPort {
   renderPoint(point: { file: string; start: number; end: number } | null): void
   /** Brings the programmer's view back to the agent cursor. */
   reveal(cursor: CursorView): void
+  /** Runs a command in a terminal the programmer can see. */
+  runCommand(command: string, options: RunOptions): Promise<CommandOutcome>
 }
 
 export type PanelEvent =
@@ -37,10 +65,17 @@ export type PanelEvent =
   | { type: "say"; text: string }
   | { type: "reading"; ms: number }
   | { type: "state"; state: AgentState; turn: Turn; paused: boolean }
-  | { type: "user"; text: string }
-  | { type: "turn"; to: Turn; message?: string }
+  | { type: "user"; text: string; ref?: Ref }
+  | { type: "turn"; to: Turn; message?: string; ref?: Ref }
   | { type: "interrupt" }
   | { type: "point"; file: string; line: number }
+  | {
+      type: "run"
+      id: number
+      command: string
+      phase: "confirm" | "running" | "done" | "declined" | "background"
+      exitCode?: number
+    }
 
 export interface PanelPort {
   post(event: PanelEvent): void

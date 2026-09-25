@@ -2,7 +2,19 @@
 
 import * as path from "node:path"
 import * as vscode from "vscode"
-import type { AgentState, Change, Controller, CursorView, EditOptions, EditorPort } from "@ai-pair/core"
+import type {
+  AgentState,
+  Change,
+  CommandOutcome,
+  Controller,
+  CursorView,
+  EditOptions,
+  EditorPort,
+  Ref,
+  RunOptions,
+  SharedSelection,
+} from "@ai-pair/core"
+import { PairTerminals } from "./terminal"
 
 type OwnEdit = { offset: number; deleteLength: number; text: string }
 
@@ -11,6 +23,9 @@ const FOLLOWING: ReadonlySet<AgentState> = new Set(["typing", "read", "thinking"
 
 /** View changes within this long after our own navigation are ours, not the programmer's. */
 const SELF_NAV_MS = 400
+
+/** A shared selection is cut off here; the agent can `read` the rest. */
+const MAX_EXCERPT = 8000
 
 function cursorDecoration(color: string, style: string, opacity: number) {
   return vscode.window.createTextEditorDecorationType({
@@ -36,6 +51,11 @@ const READ = "var(--vscode-aiPair-cursorRead)"
 
 export class VsCodeEditor implements EditorPort, vscode.Disposable {
   controller?: Controller
+  /** The programmer's selection changed: what the panel offers to send along with a reply. */
+  onSelection?: (ref: Ref | undefined) => void
+  private lastEditor?: vscode.TextEditor
+  private lastSelectionKey = ""
+  private readonly terminals = new PairTerminals()
   private readonly mirror = new Map<string, string>()
   private readonly own = new Map<string, OwnEdit[]>()
   private cursor: CursorView | null = null
@@ -66,6 +86,7 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
       read: cursorDecoration(READ, "solid", 1),
       readDim: cursorDecoration(CURSOR, "solid", 0.6),
       thinking: cursorDecoration(CURSOR, "solid", 0.45),
+      running: cursorDecoration(CURSOR, "solid", 0.6),
       paused: cursorDecoration(CURSOR, "dashed", 0.6),
       listening: cursorDecoration(CURSOR, "dotted", 0.8),
       navigator: cursorDecoration(CURSOR, "dotted", 0.8),
@@ -79,7 +100,10 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
       vscode.window.onDidChangeActiveTextEditor((e) => this.onActiveEditor(e)),
       vscode.window.onDidChangeTextEditorVisibleRanges((e) => this.onScroll(e)),
       vscode.window.onDidChangeVisibleTextEditors(() => this.redraw()),
+      vscode.window.onDidChangeTextEditorSelection((e) => this.onSelectionChange(e.textEditor)),
+      this.terminals,
     )
+    this.lastEditor = vscode.window.activeTextEditor
   }
 
   setAgentName(name: string): void {
@@ -89,6 +113,7 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
       read: labelDecoration(name, READ, 1),
       readDim: labelDecoration(name, CURSOR, 1),
       thinking: labelDecoration(name, CURSOR, 0.6),
+      running: labelDecoration(`${name} · running`, CURSOR, 0.8),
       paused: labelDecoration(`${name} · paused`, CURSOR, 0.8),
       listening: labelDecoration(`${name} · listening`, CURSOR, 0.8),
       navigator: labelDecoration(`${name} · your turn`, CURSOR, 0.8),
@@ -180,6 +205,46 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
     void this.show(cursor.file).then(() => this.follow(cursor, true))
   }
 
+  runCommand(command: string, options: RunOptions): Promise<CommandOutcome> {
+    return this.terminals.run(command, options)
+  }
+
+  // ---- The programmer's selection ------------------------------------------
+
+  /** What the programmer has selected in a workspace file, if anything. */
+  programmerSelection(): SharedSelection | undefined {
+    const editor = this.lastEditor
+    if (!editor || !vscode.window.visibleTextEditors.includes(editor)) return undefined
+    const doc = editor.document
+    const sel = editor.selection
+    if (doc.uri.scheme !== "file" || !this.inWorkspace(doc.uri.fsPath) || sel.isEmpty) return undefined
+    const text = doc.getText(sel)
+    const excerpt: SharedSelection = {
+      file: doc.uri.fsPath,
+      from: { line: sel.start.line + 1, column: sel.start.character + 1 },
+      to: { line: sel.end.line + 1, column: sel.end.character + 1 },
+      text: text.length > MAX_EXCERPT ? text.slice(0, MAX_EXCERPT) : text,
+    }
+    if (text.length > MAX_EXCERPT) excerpt.truncated = true
+    return excerpt
+  }
+
+  selectionRef(): Ref | undefined {
+    const s = this.programmerSelection()
+    return s && { file: this.displayPath(s.file), line: s.from.line, endLine: s.to.line }
+  }
+
+  private onSelectionChange(editor: vscode.TextEditor): void {
+    if (editor.document.uri.scheme !== "file") return
+    this.lastEditor = editor
+    // The agent's typing shifts the programmer's selection on every keystroke; only real changes count.
+    const ref = this.selectionRef()
+    const key = ref ? `${ref.file}:${ref.line}:${ref.endLine}` : ""
+    if (key === this.lastSelectionKey) return
+    this.lastSelectionKey = key
+    this.onSelection?.(ref)
+  }
+
   // ---- Programmer activity -------------------------------------------------
 
   private track(doc: vscode.TextDocument): void {
@@ -218,6 +283,7 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
   }
 
   private onActiveEditor(editor: vscode.TextEditor | undefined): void {
+    if (editor?.document.uri.scheme === "file") this.onSelectionChange(editor)
     if (!editor || Date.now() < this.selfNavUntil || !this.cursor || !FOLLOWING.has(this.state)) return
     if (editor.document.uri.fsPath !== this.cursor.file) this.controller?.pause("away")
   }

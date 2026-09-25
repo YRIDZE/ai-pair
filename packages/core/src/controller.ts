@@ -9,15 +9,17 @@ import type {
   CursorInfo,
   ErrorKind,
   Event,
+  Excerpt,
   FileContent,
   Report,
+  RunResult,
   Turn,
 } from "@ai-pair/protocol"
 import * as nodePath from "node:path"
 import { ToolError } from "@ai-pair/protocol"
 import { resolveAnchor, resolveSpan, type Resolution } from "./anchors"
 import { fileDiff } from "./diff"
-import type { AgentState, Change, CursorView, EditorPort, PanelPort } from "./ports"
+import type { AgentState, Change, CursorView, EditorPort, PanelPort, Ref, SharedSelection } from "./ports"
 import { eolOf, isLineStart, lineEnd, position, splitLines } from "./text"
 import { Timeline } from "./timeline"
 import { defaultTiming, withOverrides, type Timing, type TimingOverrides } from "./timing"
@@ -29,6 +31,11 @@ export type Config = {
   navigatorIdleMs: number
   timing: Timing
   random: () => number
+  /** Ask the programmer before each `run`. */
+  confirmCommands: boolean
+  /** How long a `run` waits for its command by default, and at most. */
+  runWaitMs: number
+  maxRunWaitMs: number
 }
 
 export const defaultConfig: Config = {
@@ -36,6 +43,9 @@ export const defaultConfig: Config = {
   navigatorIdleMs: 3000,
   timing: defaultTiming,
   random: Math.random,
+  confirmCommands: true,
+  runWaitMs: 120_000,
+  maxRunWaitMs: 600_000,
 }
 
 type Batch = {
@@ -69,6 +79,10 @@ type Session = {
   timeline: Timeline
   running: boolean
   reading: boolean
+  /** A `run` whose command is executing. */
+  commandRunning: boolean
+  /** A `run` waiting for the programmer's go-ahead. */
+  confirming?: { id: number; decide: (run: boolean) => void }
   /** Ended by the programmer; the final report hasn't been delivered yet. */
   ended: boolean
   navigatorReady: boolean
@@ -84,10 +98,13 @@ type Call = {
   reject: (error: unknown) => void
 }
 
+/** `consumed`: the action took effect, so it counts as played and isn't returned as unplayed. */
 type Outcome =
   | { kind: "ok" }
-  | { kind: "interrupted"; typed?: string }
-  | { kind: "error"; error: ErrorKind; message: string; candidates?: Candidate[] }
+  | { kind: "interrupted"; typed?: string; consumed?: boolean }
+  | { kind: "error"; error: ErrorKind; message: string; candidates?: Candidate[]; consumed?: boolean }
+
+type Playing = { touched: Set<string>; runs: RunResult[]; index: number }
 
 const ok: Outcome = { kind: "ok" }
 
@@ -109,6 +126,7 @@ export class Controller {
   private pauseReasons = new Set<string>()
   private speed = 1
   private lastPosted = ""
+  private nextRunId = 1
 
   constructor(
     private readonly editor: EditorPort,
@@ -139,6 +157,7 @@ export class Controller {
         timeline: new Timeline(this.pauseReasons.size > 0),
         running: false,
         reading: false,
+        commandRunning: false,
         ended: false,
         navigatorReady: false,
       }
@@ -208,11 +227,12 @@ export class Controller {
 
   // ---- Programmer input --------------------------------------------------
 
-  userMessage(text: string): void {
+  /** `selection`: code the programmer had selected, sent along with the message. */
+  userMessage(text: string, selection?: SharedSelection): void {
     const s = this.activeSession()
     if (!s) return
-    s.events.push({ kind: "message", text })
-    this.panel.post({ type: "user", text })
+    s.events.push(selection ? { kind: "message", text, selection: this.excerpt(s, selection) } : { kind: "message", text })
+    this.panel.post({ type: "user", text, ref: selection && this.ref(selection) })
     this.interrupt(s)
     this.update()
   }
@@ -258,13 +278,16 @@ export class Controller {
     this.update()
   }
 
-  handBack(message?: string): void {
+  handBack(message?: string, selection?: SharedSelection): void {
     const s = this.activeSession()
     if (!s || s.turn === "agent") return
     s.turn = "agent"
     clearTimeout(s.navigatorTimer)
-    s.events.push(message ? { kind: "turn", to: "agent", message } : { kind: "turn", to: "agent" })
-    this.panel.post({ type: "turn", to: "agent", message })
+    const event: Event = { kind: "turn", to: "agent" }
+    if (message) event.message = message
+    if (selection) event.selection = this.excerpt(s, selection)
+    s.events.push(event)
+    this.panel.post({ type: "turn", to: "agent", message, ref: selection && this.ref(selection) })
     this.interrupt(s)
     this.update()
   }
@@ -315,6 +338,16 @@ export class Controller {
 
   setSpeed(speed: number): void {
     this.speed = speed
+  }
+
+  setConfirmCommands(confirm: boolean): void {
+    this.config = { ...this.config, confirmCommands: confirm }
+  }
+
+  /** The programmer's answer to a `run` waiting for confirmation. */
+  decideRun(id: number, run: boolean): void {
+    const c = this.session?.confirming
+    if (c?.id === id) c.decide(run)
   }
 
   /** Calibration: overrides on top of the default timing. */
@@ -515,9 +548,10 @@ export class Controller {
         if (!batch) break
         this.startHead(s)
         this.render()
-        const touched = new Set<string>()
-        const result = await this.play(s, batch, touched)
-        for (const file of touched) {
+        const playing: Playing = { touched: new Set(), runs: [], index: 0 }
+        const result = await this.play(s, batch, playing)
+        if (playing.runs.length > 0) result.runs = playing.runs
+        for (const file of playing.touched) {
           try {
             await this.editor.save(file)
           } catch {
@@ -546,32 +580,44 @@ export class Controller {
     s.timeline.reset()
   }
 
-  private async play(s: Session, batch: Batch, touched: Set<string>): Promise<BatchResult> {
+  private async play(s: Session, batch: Batch, playing: Playing): Promise<BatchResult> {
     const { id, actions } = batch
     for (let i = 0; i < actions.length; i++) {
       if (s.timeline.isInterrupted) return this.interruptedResult(batch, i)
+      playing.index = i
       let outcome: Outcome
       try {
-        outcome = await this.perform(s, actions[i]!, touched)
+        outcome = await this.perform(s, actions[i]!, playing)
       } catch (e) {
         outcome = fail("invalid_action", e instanceof Error ? e.message : String(e))
       }
-      if (outcome.kind === "interrupted") return this.interruptedResult(batch, i, outcome.typed)
+      if (outcome.kind === "interrupted") {
+        if (outcome.consumed) return this.interruptedResult(batch, i + 1, undefined, true)
+        return this.interruptedResult(batch, i, outcome.typed)
+      }
       if (outcome.kind === "error") {
-        return {
+        const played = outcome.consumed ? i + 1 : i
+        const result: BatchResult = {
           id,
           status: "failed",
-          played: i,
-          unplayed: actions.slice(i),
+          played,
           error: { index: i, kind: outcome.error, message: outcome.message, candidates: outcome.candidates },
         }
+        if (played < actions.length) result.unplayed = actions.slice(played)
+        return result
       }
     }
     return { id, status: "completed", played: actions.length }
   }
 
-  private interruptedResult(batch: Batch, index: number, typed?: string): BatchResult {
+  /** `effect`: the action before `index` already took effect, so the batch counts as interrupted. */
+  private interruptedResult(batch: Batch, index: number, typed?: string, effect = false): BatchResult {
     const { id, actions } = batch
+    if (effect) {
+      const result: BatchResult = { id, status: "interrupted", played: index }
+      if (index < actions.length) result.unplayed = actions.slice(index)
+      return result
+    }
     if (typed) {
       return { id, status: "interrupted", played: index, partial: { index, typed }, unplayed: actions.slice(index + 1) }
     }
@@ -583,7 +629,8 @@ export class Controller {
     return s.timeline.sleep(ms / this.speed)
   }
 
-  private async perform(s: Session, action: Action, touched: Set<string>): Promise<Outcome> {
+  private async perform(s: Session, action: Action, playing: Playing): Promise<Outcome> {
+    const { touched } = playing
     if (s.turn === "user" && !("say" in action) && !("point" in action)) {
       return fail("not_your_turn", "During the programmer's turn, only `say` and `point` are allowed.")
     }
@@ -680,7 +727,76 @@ export class Controller {
       return ok
     }
 
+    if ("run" in action) return this.runCommand(s, action, playing)
+
     return fail("invalid_action", `Unknown action: ${JSON.stringify(action)}`)
+  }
+
+  private async runCommand(s: Session, action: { run: string; wait?: number }, playing: Playing): Promise<Outcome> {
+    const command = action.run
+    if (typeof command !== "string" || command.trim() === "") return fail("invalid_action", "`run` needs a command.")
+    const id = this.nextRunId++
+    const signal = s.timeline.signal
+
+    if (this.config.confirmCommands) {
+      this.panel.post({ type: "run", id, command, phase: "confirm" })
+      s.reading = true
+      this.render()
+      const go = await new Promise<boolean>((resolve) => {
+        const abort = () => resolve(false)
+        s.confirming = {
+          id,
+          decide: (run) => {
+            signal.removeEventListener("abort", abort)
+            resolve(run)
+          },
+        }
+        signal.addEventListener("abort", abort, { once: true })
+      })
+      s.confirming = undefined
+      s.reading = false
+      this.render()
+      if (!go || signal.aborted) {
+        this.panel.post({ type: "run", id, command, phase: "declined" })
+        if (signal.aborted) return { kind: "interrupted" }
+        return fail("command_declined", "The programmer declined to run this command.")
+      }
+    }
+
+    const requested = action.wait !== undefined ? action.wait * 1000 : this.config.runWaitMs
+    const waitMs = Math.max(0, Math.min(this.config.maxRunWaitMs, requested))
+    this.panel.post({ type: "run", id, command, phase: "running" })
+    s.commandRunning = true
+    this.render()
+    let outcome
+    try {
+      outcome = await this.editor.runCommand(command, { cwd: s.root ?? this.editor.resolvePath("."), waitMs, signal })
+    } catch (e) {
+      this.panel.post({ type: "run", id, command, phase: "declined" })
+      throw e
+    } finally {
+      s.commandRunning = false
+      this.render()
+    }
+    if (outcome.notStarted) {
+      this.panel.post({ type: "run", id, command, phase: "declined" })
+      return { kind: "interrupted" }
+    }
+
+    const result: RunResult = { index: playing.index, command, output: outcome.output }
+    if (outcome.exitCode !== undefined && !outcome.running) result.exit_code = outcome.exitCode
+    if (outcome.truncated) result.truncated = true
+    if (outcome.running) result.running = true
+    if (outcome.shell) result.shell = outcome.shell
+    playing.runs.push(result)
+    const phase = outcome.running ? "background" : "done"
+    this.panel.post({ type: "run", id, command, phase, exitCode: result.exit_code })
+
+    if (outcome.running && signal.aborted) return { kind: "interrupted", consumed: true }
+    if (result.exit_code !== undefined && result.exit_code !== 0) {
+      return { kind: "error", error: "command_failed", message: `The command exited with ${result.exit_code}.`, consumed: true }
+    }
+    return ok
   }
 
   private async type(s: Session, text: string, fast: boolean, touched: Set<string>): Promise<Outcome> {
@@ -736,6 +852,16 @@ export class Controller {
     if (s.point?.file === file) s.point = { file, start: map(s.point.start), end: map(s.point.end) }
   }
 
+  // ---- Shared selections ---------------------------------------------------
+
+  private excerpt(s: Session, selection: SharedSelection): Excerpt {
+    return { ...selection, file: this.displayPath(s, selection.file) }
+  }
+
+  private ref(selection: SharedSelection): Ref {
+    return { file: this.editor.displayPath(selection.file), line: selection.from.line, endLine: selection.to.line }
+  }
+
   // ---- Paths ---------------------------------------------------------------
 
   private resolvePath(s: Session, file: string): string {
@@ -759,7 +885,7 @@ export class Controller {
     const s = this.session
     if (!s || s.turn === "user") return "navigator"
     if (this.pauseReasons.size > 0) return "paused"
-    if (s.queue.length > 0) return s.reading ? "read" : "typing"
+    if (s.queue.length > 0) return s.reading ? "read" : s.commandRunning ? "running" : "typing"
     return this.call?.kind === "listen" ? "listening" : "thinking"
   }
 

@@ -42,7 +42,7 @@ second cursor. The extension tracks it through the programmer's edits, like a
 marker.
 
 **Action.** A single visible operation: say something, move, select, type,
-delete, point.
+delete, point, run a command.
 
 **Batch.** An ordered list of actions submitted in one `step` call. A batch is
 the unit of planning: one idea, typically one narration plus the few edits it
@@ -200,6 +200,7 @@ type Action =
   | { type_fast: string }
   | { delete: true }
   | { point: (Anchor | { from: Anchor, to: Anchor }) & { file?: string } }
+  | { run: string, wait?: number }
 ```
 
 Each editing action (`type`, `type_fast`, `delete`) is **one undo stop** in the
@@ -268,6 +269,33 @@ During the agent's turn, if `file` is not the visible file, the view switches
 to it. During the programmer's turn, the view never switches; the narration
 panel shows a clickable reference instead.
 
+### `run`
+
+Runs a shell command in an integrated terminal the programmer can see, in the
+agent's working directory. For commands whose outcome the programmer should
+witness: tests, builds, starting the app, a request to it. Purely mechanical
+commands can still run in the background with the agent's native tools.
+
+- **Confirmation.** By default the narration panel asks the programmer to
+  allow each command first (the `aiPair.confirmCommands` setting). Declining
+  fails the batch with `command_declined`. Without this, `run` would bypass
+  the harness's own permission prompt for shell commands.
+- **Waiting.** Playback waits for the command to finish, for at most `wait`
+  seconds (default 120, at most 600). A command still going after that, such
+  as a server or a watcher, is reported with `running: true` and keeps
+  running in its terminal.
+- **Result.** Each `run` adds an entry to the batch's `runs`: the exit code,
+  the last ~12,000 characters of output as plain text, and the terminal's
+  shell (`pwsh`, `zsh`, …) so the agent can write commands for it.
+- **Failure.** A nonzero exit fails the batch with `command_failed`, since the
+  rest of the batch, and the next one, were planned assuming success. A `run`
+  counts as played once its command has started, so it is never returned in
+  `unplayed`; the same holds when the programmer interrupts while it runs:
+  playback stops waiting, and the command keeps running.
+- The output needs shell integration in the terminal. Without it, the command
+  is typed into the terminal and the entry says the output wasn't captured.
+- Not allowed during the programmer's turn.
+
 ## Anchors
 
 An anchor identifies a location by **exact text**, with optional tie-breakers.
@@ -318,14 +346,23 @@ type BatchResult = {
     typed: string             // for type/type_fast: exactly what made it into the buffer
   }
   unplayed?: Action[]         // remaining actions, verbatim (the partial one excluded,
-                              // the failing one included)
+                              // the failing one included, a started `run` excluded)
   error?: {
     index: number
     kind: "anchor_not_found" | "anchor_ambiguous" | "no_selection" | "no_file"
-        | "not_your_turn" | "invalid_action"
+        | "not_your_turn" | "invalid_action" | "command_failed" | "command_declined"
     message: string
     candidates?: { line: number, context: string }[]
   }
+  runs?: {                    // one per `run` that started
+    index: number
+    command: string
+    exit_code?: number        // absent while running, or if it couldn't be observed
+    output: string            // plain text, the tail if long
+    truncated?: true
+    running?: true            // still running in its terminal
+    shell?: string
+  }[]
 }
 ```
 
@@ -340,11 +377,19 @@ typed.
 
 ```ts
 type Event =
-  | { kind: "message", text: string }
+  | { kind: "message", text: string, selection?: Excerpt }
   | { kind: "edit", file: string, diff: string }
   | { kind: "interrupt" }
-  | { kind: "turn", to: "agent" | "user", message?: string }
+  | { kind: "turn", to: "agent" | "user", message?: string, selection?: Excerpt }
   | { kind: "end" }
+
+type Excerpt = {              // code the programmer had selected
+  file: string
+  from: { line: number, column: number }
+  to: { line: number, column: number }
+  text: string                // cut off at 8,000 characters
+  truncated?: true
+}
 ```
 
 During the agent's turn, **every event interrupts**: it stops playback and
@@ -352,7 +397,9 @@ triggers the no-stale-plans rule. This includes any edit by the programmer,
 anywhere. (A finer rule, such as only edits near the agent cursor, may come
 later.)
 
-- `message`: the programmer sent a message from the narration panel.
+- `message`: the programmer sent a message from the narration panel. If they
+  had code selected in the editor, it comes along as `selection`, unless they
+  dismissed it in the panel: "what does this do?" is about that code.
 - `interrupt`: the Interrupt button.
 - `turn`: see [Turns](#turns).
 - `edit`: the programmer changed a file. Edits are coalesced per file into a
@@ -394,10 +441,11 @@ message). The agent receives the programmer's edits since the last report and
   so a slip never goes unnoticed.
 - The agent should not natively edit files that have unsaved changes in the
   editor; `read` reports `dirty` for this reason.
-- **Terminal commands** are run with the agent's native tools; the protocol
-  doesn't show them. The agent must narrate them instead: `say` what it's
-  about to run and why before running it, and `say` what came out of it
-  afterwards.
+- **Terminal commands** that matter to the programmer go through `run`, so
+  they see the command and its output. Background commands run with the
+  agent's native tools; the protocol doesn't show them, so the agent narrates
+  them instead: `say` what it's about to run and why, and `say` what came out
+  of it afterwards.
 
 ## Guidance for the agent
 
@@ -479,11 +527,8 @@ experience (order of work, narration, background vs. visible work) is in
 - **Navigator reporting.** How eagerly should `listen` report the programmer's
   edits during their turn? Too eager is noisy and costly; too lazy makes the
   navigator useless.
-- **Sharing context.** Messages attached to a selection ("what does this
-  do?"), and explicitly sharing the programmer's cursor. Not needed for the
-  first prototype.
+- **Sharing context.** Messages carry the programmer's selection. Sharing the
+  cursor alone (no selection: "here") is still open.
 - **Interrupting edits.** Every edit interrupts for now. If that turns out too
   disruptive (e.g. fixing a typo in another file), narrow it to edits near the
   agent cursor or the region the current batch touched.
-- **Terminal visibility.** Showing the agent's commands to the programmer
-  (e.g. in an integrated terminal), beyond narration.

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { resolveAnchor, resolveSpan } from "../src/anchors"
 import { planTyping, readingTime } from "../src/typing"
+import { terminalText } from "../src/text"
+
+describe("terminal text", () => {
+  it("drops colors and shell integration sequences, and resolves progress overwrites", () => {
+    const raw = "\x1b]633;C\x07\x1b[32m✓\x1b[0m 4 passed\r\n 10%\r 50%\r100%\r\n\x1b]633;D;0\x07"
+    expect(terminalText(raw)).toBe("✓ 4 passed\n100%")
+  })
+})
 
 describe("anchors", () => {
   const text = "a = 1\nb = 1\nc = 1\n"
