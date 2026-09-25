@@ -36,8 +36,11 @@ function alive(pid: number): boolean {
   }
 }
 
-/** The live window whose workspace folder most closely contains `cwd`; the most recently focused on a tie. */
-export function findWindow(cwd: string, dir: string): Discovery {
+/**
+ * The live windows with a workspace folder containing `cwd`, best first: the most closely
+ * containing folder, then the most recently focused window.
+ */
+export function findWindows(cwd: string, dir: string): Discovery[] {
   const windows: Discovery[] = []
   let files: string[] = []
   try {
@@ -55,18 +58,12 @@ export function findWindow(cwd: string, dir: string): Discovery {
   }
 
   const here = realpath(cwd)
-  let best: Discovery | undefined
-  let bestLength = -1
-  for (const w of windows) {
-    for (const folder of w.workspaceFolders.map(realpath)) {
-      if (!contains(folder, here)) continue
-      if (folder.length > bestLength || (folder.length === bestLength && w.lastFocused > best!.lastFocused)) {
-        best = w
-        bestLength = folder.length
-      }
-    }
+  const matches: { window: Discovery; length: number }[] = []
+  for (const window of windows) {
+    const lengths = window.workspaceFolders.map(realpath).filter((f) => contains(f, here)).map((f) => f.length)
+    if (lengths.length > 0) matches.push({ window, length: Math.max(...lengths) })
   }
-  if (!best) {
+  if (matches.length === 0) {
     throw new RelayError(
       "no_editor",
       windows.length === 0
@@ -74,7 +71,8 @@ export function findWindow(cwd: string, dir: string): Discovery {
         : `No VS Code window has ${cwd} open. Ask the programmer to open it in VS Code (with the AI Pair extension).`,
     )
   }
-  return best
+  matches.sort((a, b) => b.length - a.length || b.window.lastFocused - a.window.lastFocused)
+  return matches.map((m) => m.window)
 }
 
 type Pending = {
@@ -83,6 +81,9 @@ type Pending = {
   resolve: (result: unknown) => void
   reject: (error: RelayError) => void
 }
+
+/** A port a stale window file points at may now belong to something that never answers. */
+const HANDSHAKE_MS = 5000
 
 /** Tools whose results are reports, which must be delivered exactly once. */
 const REPORTING: ReadonlySet<ToolName> = new Set(["step", "listen", "end"])
@@ -129,10 +130,25 @@ export class EditorLink {
     return this.connecting
   }
 
-  private open(): Promise<WebSocket> {
-    const window = findWindow(this.cwd, this.dir)
+  /**
+   * Tries the matching windows best first. A window's file can outlive it when VS Code didn't shut
+   * down cleanly, and its pid can then belong to another process, so an unreachable one is skipped.
+   */
+  private async open(): Promise<WebSocket> {
+    let first: unknown
+    for (const window of findWindows(this.cwd, this.dir)) {
+      try {
+        return await this.openWindow(window)
+      } catch (e) {
+        first ??= e
+      }
+    }
+    throw first
+  }
+
+  private openWindow(window: Discovery): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${window.port}`)
+      const ws = new WebSocket(`ws://127.0.0.1:${window.port}`, { handshakeTimeout: HANDSHAKE_MS })
       let welcomed = false
       const settle = (id: number) => {
         const p = this.pending.get(id)
