@@ -37,10 +37,6 @@ export function isLineStart(text: string, offset: number): boolean {
   return offset === 0 || text[offset - 1] === "\n"
 }
 
-export function eolOf(text: string): string {
-  return text.includes("\r\n") ? "\r\n" : "\n"
-}
-
 /** Raw terminal output as plain text: no escape sequences, carriage-return overwrites resolved. */
 export function terminalText(raw: string): string {
   const plain = raw

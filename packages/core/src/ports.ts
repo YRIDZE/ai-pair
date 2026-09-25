@@ -49,6 +49,8 @@ export interface EditorPort {
   displayPath(file: string): string
   /** Buffer contents if open, otherwise from disk. */
   getText(file: string): Promise<string>
+  /** The line ending the editor stores in the file, "\n" or "\r\n", known even for an empty buffer. */
+  eol(file: string): Promise<string>
   isDirty(file: string): Promise<boolean>
   /** Opens the file (creating it empty if missing) and makes it the visible editor. */
   show(file: string): Promise<void>
