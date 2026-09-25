@@ -34,7 +34,7 @@ beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-pair-"))
   editor = new FakeEditor()
   panel = new FakePanel()
-  editor.files.set("/project/src/a.ts", "")
+  editor.files.set(editor.resolvePath("src/a.ts"), "")
   controller = new Controller(editor, panel, fast)
   editor.controller = controller
   bridge = new Bridge(controller, { dir, workspaceFolders: () => ["/project"] })

@@ -143,7 +143,8 @@ export class Controller {
       }
       const s: Session = {
         task,
-        root,
+        // In the editor's spelling, so paths inside it are reported relative to it.
+        root: root && this.editor.resolvePath(root),
         turn: "agent",
         queue: [],
         finished: [],
@@ -865,7 +866,7 @@ export class Controller {
   // ---- Paths ---------------------------------------------------------------
 
   private resolvePath(s: Session, file: string): string {
-    return s.root ? nodePath.resolve(s.root, file) : this.editor.resolvePath(file)
+    return this.editor.resolvePath(s.root ? nodePath.resolve(s.root, file) : file)
   }
 
   private displayPath(s: Session, file: string): string {

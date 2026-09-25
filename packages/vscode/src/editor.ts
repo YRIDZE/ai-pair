@@ -2,6 +2,7 @@
 
 import * as path from "node:path"
 import * as vscode from "vscode"
+import { samePath, withinFolder } from "@ai-pair/core"
 import type {
   AgentState,
   Change,
@@ -123,8 +124,16 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
 
   // ---- EditorPort ----------------------------------------------------------
 
+  /** Spelled the way VS Code spells it: an open document's path, else a workspace folder's. */
   resolvePath(file: string): string {
-    return path.resolve(this.root, file)
+    const resolved = vscode.Uri.file(path.resolve(this.root, file)).fsPath
+    const open = vscode.workspace.textDocuments.find((d) => d.uri.scheme === "file" && samePath(d.uri.fsPath, resolved))
+    if (open) return open.uri.fsPath
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      const inside = withinFolder(folder.uri.fsPath, resolved)
+      if (inside) return inside
+    }
+    return resolved
   }
 
   displayPath(file: string): string {

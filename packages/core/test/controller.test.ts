@@ -1,3 +1,4 @@
+import * as nodePath from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Action } from "@ai-pair/protocol"
 import { advance, setup, testConfig, track, until } from "./fake"
@@ -123,7 +124,7 @@ describe("editing", () => {
     await controller.step([{ move: { file: "new.ts" } }, { type_fast: "x" }])
     await until(controller.step([]))
     expect(editor.text("new.ts")).toBe("x")
-    expect(editor.saved).toEqual(["/project/new.ts"])
+    expect(editor.saved).toEqual([editor.resolvePath("new.ts")])
   })
 
   it("fails a batch on an ambiguous anchor, listing candidates, and discards the next batch", async () => {
@@ -230,7 +231,7 @@ describe("turns", () => {
 
     await controller.step([{ point: { text: "<=" } }, { say: "Careful, this goes one past the end." }])
     await advance(3000)
-    expect(editor.point).toEqual({ file: "/project/a.ts", start: 7, end: 9 })
+    expect(editor.point).toEqual({ file: editor.resolvePath("a.ts"), start: 7, end: 9 })
 
     // Edits are reported once the programmer pauses typing.
     const following = track(controller.listen())
@@ -322,6 +323,21 @@ describe("sessions", () => {
     await controller.start("second")
     expect(controller.isActive).toBe(true)
   })
+
+  it("resolves paths under the agent's root into the editor's canonical form", async () => {
+    const { editor, controller } = setup()
+    editor.resolvePath = (file) => nodePath.resolve("/project", file).toLowerCase()
+    await controller.start(undefined, "/Project")
+    const file = nodePath.resolve("/Project", "A.ts").toLowerCase()
+    await controller.step([{ move: { file: "A.ts" } }, { type: "abc" }])
+    const listening = controller.listen()
+    await advance(1000)
+    editor.controller.userEdit(file, "abc", "XXabc", [{ offset: 0, deleteLength: 0, text: "XX" }])
+    const report = await until(listening)
+    expect(editor.shown).toEqual([file])
+    expect(editor.cursor).toMatchObject({ file, offset: 5 })
+    expect(report.cursor?.file).toBe("a.ts")
+  })
 })
 
 describe("shared selections", () => {
@@ -378,7 +394,7 @@ describe("run", () => {
         runs: [{ index: 1, command: "npm test", exit_code: 0, output: "4 passed", shell: "bash" }],
       },
     ])
-    expect(editor.commands[0]!.options).toMatchObject({ cwd: "/project/sub", waitMs: 120_000 })
+    expect(editor.commands[0]!.options).toMatchObject({ cwd: editor.resolvePath("sub"), waitMs: 120_000 })
     expect(panel.events.filter((e) => e.type === "run").map((e) => e.type === "run" && e.phase)).toEqual(["running", "done"])
   })
 

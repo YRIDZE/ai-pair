@@ -2,11 +2,43 @@ import { describe, expect, it } from "vitest"
 import { resolveAnchor, resolveSpan } from "../src/anchors"
 import { planTyping, readingTime } from "../src/typing"
 import { terminalText } from "../src/text"
+import { samePath, withinFolder, type PathStyle } from "../src/paths"
 
 describe("terminal text", () => {
   it("drops colors and shell integration sequences, and resolves progress overwrites", () => {
     const raw = "\x1b]633;C\x07\x1b[32m✓\x1b[0m 4 passed\r\n 10%\r 50%\r100%\r\n\x1b]633;D;0\x07"
     expect(terminalText(raw)).toBe("✓ 4 passed\n100%")
+  })
+})
+
+describe("paths", () => {
+  const windows: PathStyle = { ignoreCase: true, sep: "\\" }
+  const mac: PathStyle = { ignoreCase: true, sep: "/" }
+  const linux: PathStyle = { ignoreCase: false, sep: "/" }
+
+  it("ignores case on Windows and macOS, not on Linux", () => {
+    expect(samePath("C:\\Users\\me\\a.ts", "c:\\users\\me\\a.ts", windows)).toBe(true)
+    expect(samePath("/Users/me/A.ts", "/users/me/a.ts", mac)).toBe(true)
+    expect(samePath("/home/me/A.ts", "/home/me/a.ts", linux)).toBe(false)
+  })
+
+  it("spells a file inside a folder the way the folder is spelled", () => {
+    const folder = "c:\\Users\\me\\Desktop\\proj"
+    expect(withinFolder(folder, "C:\\users\\me\\desktop\\proj\\src\\A.ts", windows)).toBe("c:\\Users\\me\\Desktop\\proj\\src\\A.ts")
+    expect(withinFolder(folder, "C:\\USERS\\ME\\DESKTOP\\PROJ", windows)).toBe(folder)
+    expect(withinFolder("/Users/me/Proj", "/users/me/proj/a.ts", mac)).toBe("/Users/me/Proj/a.ts")
+    expect(withinFolder("/home/me/proj", "/home/me/proj/a.ts", linux)).toBe("/home/me/proj/a.ts")
+  })
+
+  it("leaves files outside the folder alone", () => {
+    expect(withinFolder("c:\\proj", "c:\\project\\a.ts", windows)).toBeUndefined()
+    expect(withinFolder("c:\\proj", "d:\\proj\\a.ts", windows)).toBeUndefined()
+    expect(withinFolder("/home/me/Proj", "/home/me/proj/a.ts", linux)).toBeUndefined()
+  })
+
+  it("handles a folder that is a drive root", () => {
+    expect(withinFolder("c:\\", "C:\\proj\\a.ts", windows)).toBe("c:\\proj\\a.ts")
+    expect(withinFolder("/", "/home/me/a.ts", linux)).toBe("/home/me/a.ts")
   })
 })
 

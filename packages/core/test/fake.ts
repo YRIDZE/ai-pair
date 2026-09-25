@@ -1,3 +1,4 @@
+import * as nodePath from "node:path"
 import { vi } from "vitest"
 import { Controller, defaultConfig, type Config } from "../src/controller"
 import type {
@@ -11,7 +12,8 @@ import type {
   RunOptions,
 } from "../src/ports"
 
-const ROOT = "/project/"
+/** `/project` in this platform's form (`C:\project` on Windows), as the controller resolves it. */
+const ROOT = nodePath.resolve("/project")
 
 export class FakeEditor implements EditorPort {
   files = new Map<string, string>()
@@ -25,10 +27,11 @@ export class FakeEditor implements EditorPort {
   controller!: Controller
 
   resolvePath(file: string): string {
-    return file.startsWith("/") ? file : ROOT + file
+    return nodePath.resolve(ROOT, file)
   }
   displayPath(file: string): string {
-    return file.startsWith(ROOT) ? file.slice(ROOT.length) : file
+    const rel = nodePath.relative(ROOT, file)
+    return rel.startsWith("..") || nodePath.isAbsolute(rel) ? file : rel
   }
   async getText(file: string): Promise<string> {
     const text = this.files.get(file)

@@ -40,7 +40,10 @@ export type Ref = { file: string; line: number; endLine: number }
 
 /** Files are absolute paths; offsets are into the document text. */
 export interface EditorPort {
-  /** Absolute path for a path given by the agent (absolute or workspace-relative). */
+  /**
+   * Absolute path for a path given by the agent (absolute or workspace-relative), in the same
+   * canonical form the editor reports files in (e.g. VS Code lowercases the Windows drive letter).
+   */
   resolvePath(file: string): string
   /** How to name a file to the agent. */
   displayPath(file: string): string
