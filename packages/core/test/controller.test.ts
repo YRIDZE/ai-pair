@@ -94,6 +94,16 @@ describe("editing", () => {
     ])
   })
 
+  it("types the editor's line ending into an empty file, so the editor has nothing to normalize", async () => {
+    const { editor, controller } = setup({ "a.ts": "" })
+    editor.crlf.add(editor.resolvePath("a.ts"))
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts" } }, { type: "a\n  b\n" }, { type: "c" }])
+    await until(controller.step([]))
+    expect(editor.text("a.ts")).toBe("a\r\n  b\r\nc")
+    expect(editor.edits.map((e) => e.text)).toEqual(["a", "\r\n  ", "b", "\r\n", "c"])
+  })
+
   it("moves by lines, to the end of the line, to type into a gap made first", async () => {
     const { editor, controller } = setup({ "a.ts": "a\nb\n" })
     await controller.start()

@@ -253,7 +253,8 @@ cursor ends after the inserted text.
 
 Text is inserted **literally**: no auto-closing brackets, no auto-indent, no
 completions. The agent must include indentation itself. Newlines are
-normalized to the document's line endings.
+inserted as the document's line ending (LF or CRLF) as the editor reports it,
+which it does even for an empty file.
 
 ### `delete`
 

@@ -38,6 +38,11 @@ export class FakeEditor implements EditorPort {
     if (text === undefined) throw new Error(`No such file: ${file}`)
     return text
   }
+  /** Files the editor stores with CRLF, whatever they contain so far. */
+  crlf = new Set<string>()
+  async eol(file: string): Promise<string> {
+    return this.crlf.has(file) ? "\r\n" : "\n"
+  }
   async isDirty(file: string): Promise<boolean> {
     return this.dirty.has(file)
   }

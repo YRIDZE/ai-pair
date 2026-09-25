@@ -144,6 +144,10 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
     return (await this.document(file)).getText()
   }
 
+  async eol(file: string): Promise<string> {
+    return (await this.document(file)).eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n"
+  }
+
   async isDirty(file: string): Promise<boolean> {
     return this.openDocument(file)?.isDirty ?? false
   }

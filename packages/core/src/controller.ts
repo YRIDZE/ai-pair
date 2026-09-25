@@ -20,7 +20,7 @@ import { ToolError } from "@ai-pair/protocol"
 import { resolveAnchor, resolveSpan, type Resolution } from "./anchors"
 import { fileDiff } from "./diff"
 import type { AgentState, Change, CursorView, EditorPort, PanelPort, Ref, SharedSelection } from "./ports"
-import { eolOf, isLineStart, lineEnd, position, splitLines } from "./text"
+import { isLineStart, lineEnd, position, splitLines } from "./text"
 import { Timeline } from "./timeline"
 import { defaultTiming, withOverrides, type Timing, type TimingOverrides } from "./timing"
 import { planTyping, readingTime } from "./typing"
@@ -817,7 +817,7 @@ export class Controller {
     this.clearPoint(s)
 
     const doc = await this.editor.getText(cursor.file)
-    const eol = eolOf(doc)
+    const eol = await this.editor.eol(cursor.file)
     const insertAt = s.selection ? s.selection.start : cursor.offset
     const { timing } = this.config
     const chunks = planTyping(text, timing.type, isLineStart(doc, insertAt), this.config.random, fast ? timing.fastFactor : 1)
