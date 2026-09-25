@@ -277,8 +277,9 @@ witness: tests, builds, starting the app, a request to it. Purely mechanical
 commands can still run in the background with the agent's native tools.
 
 - **Confirmation.** By default the narration panel asks the programmer to
-  allow each command first (the `aiPair.confirmCommands` setting). Declining
-  fails the batch with `command_declined`. Without this, `run` would bypass
+  allow each command first (the `aiPair.confirmCommands` setting), or to allow
+  that exact command for the rest of the session. Declining fails the batch
+  with `command_declined`. Without this, `run` would bypass
   the harness's own permission prompt for shell commands.
 - **Waiting.** Playback waits for the command to finish, for at most `wait`
   seconds (default 120, at most 600). A command still going after that, such

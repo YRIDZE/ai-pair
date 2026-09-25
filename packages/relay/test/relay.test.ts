@@ -8,7 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Bridge, Controller } from "@ai-pair/core"
 import { FakeEditor, FakePanel, testConfig } from "../../core/test/fake"
-import { EditorLink, findWindow } from "../src/link"
+import { EditorLink, findWindows } from "../src/link"
 import { createServer } from "../src/server"
 
 const fast = {
@@ -162,7 +162,16 @@ describe("discovery", () => {
     write("dead.json", ["/work/app/src"], 9)
     const dead = JSON.parse(fs.readFileSync(path.join(dir, "dead.json"), "utf8"))
     fs.writeFileSync(path.join(dir, "dead.json"), JSON.stringify({ ...dead, pid: 999_999_999 }))
-    expect(findWindow("/work/app/src", dir).token).toBe("inner-new.json")
-    expect(findWindow("/work/lib", dir).token).toBe("outer.json")
+    expect(findWindows("/work/app/src", dir).map((w) => w.token)).toEqual(["inner-new.json", "inner-old.json", "outer.json"])
+    expect(findWindows("/work/lib", dir).map((w) => w.token)).toEqual(["outer.json"])
+  })
+
+  it("skips a window whose file outlived it, even when its pid now belongs to another process", async () => {
+    fs.writeFileSync(
+      path.join(dir, "stale.json"),
+      JSON.stringify({ pid: process.pid, workspaceFolders: ["/project"], port: 1, token: "x", protocolVersion: 1, lastFocused: Date.now() + 60_000 }),
+    )
+    const client = await connect()
+    expect((await call(client, "start")).error).toBe(false)
   })
 })

@@ -82,7 +82,9 @@ type Session = {
   /** A `run` whose command is executing. */
   commandRunning: boolean
   /** A `run` waiting for the programmer's go-ahead. */
-  confirming?: { id: number; decide: (run: boolean) => void }
+  confirming?: { id: number; command: string; decide: (run: boolean) => void }
+  /** Commands the programmer allowed to run without asking, until the session ends. */
+  allowedCommands: Set<string>
   /** Ended by the programmer; the final report hasn't been delivered yet. */
   ended: boolean
   navigatorReady: boolean
@@ -159,6 +161,7 @@ export class Controller {
         running: false,
         reading: false,
         commandRunning: false,
+        allowedCommands: new Set(),
         ended: false,
         navigatorReady: false,
       }
@@ -345,10 +348,16 @@ export class Controller {
     this.config = { ...this.config, confirmCommands: confirm }
   }
 
-  /** The programmer's answer to a `run` waiting for confirmation. */
-  decideRun(id: number, run: boolean): void {
-    const c = this.session?.confirming
-    if (c?.id === id) c.decide(run)
+  /**
+   * The programmer's answer to a `run` waiting for confirmation. `remember`: run exactly this
+   * command without asking for the rest of the session.
+   */
+  decideRun(id: number, run: boolean, remember = false): void {
+    const s = this.session
+    const c = s?.confirming
+    if (c?.id !== id) return
+    if (run && remember) s!.allowedCommands.add(c.command)
+    c.decide(run)
   }
 
   /** Calibration: overrides on top of the default timing. */
@@ -739,7 +748,7 @@ export class Controller {
     const id = this.nextRunId++
     const signal = s.timeline.signal
 
-    if (this.config.confirmCommands) {
+    if (this.config.confirmCommands && !s.allowedCommands.has(command)) {
       this.panel.post({ type: "run", id, command, phase: "confirm" })
       s.reading = true
       this.render()
@@ -747,6 +756,7 @@ export class Controller {
         const abort = () => resolve(false)
         s.confirming = {
           id,
+          command,
           decide: (run) => {
             signal.removeEventListener("abort", abort)
             resolve(run)

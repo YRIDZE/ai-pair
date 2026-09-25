@@ -79,7 +79,7 @@ While you pair:
 |---|---|
 | say something to the agent | type in the reply box, press Enter. Typing pauses playback. |
 | ask about some code | select it in the editor, then reply: the selection goes along (× leaves it out) |
-| let it run a command | the agent's tests and builds play in an *AI Pair* terminal; **Run** or **Skip** in the panel |
+| let it run a command | the agent's tests and builds play in an *AI Pair* terminal; **Run**, **Allow for session**, or **Skip** in the panel |
 | stop it right now | **Interrupt**, or just edit the code: any edit interrupts |
 | look around | scroll or switch files. Playback pauses until you **Resume**, which brings you back to the agent's cursor |
 | write a part yourself | **My turn**. The agent becomes the navigator and comments as you type. **Your turn** hands it back, with your reply if you typed one |

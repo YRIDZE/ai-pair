@@ -16,7 +16,7 @@ type FromPanel =
   | { type: "end" }
   | { type: "open"; file: string; line: number }
   | { type: "speed"; value: number }
-  | { type: "runDecision"; id: number; run: boolean }
+  | { type: "runDecision"; id: number; run: boolean; remember?: boolean }
 
 const MAX_LOG = 400
 
@@ -112,7 +112,7 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
         c?.endSession()
         return
       case "runDecision":
-        c?.decideRun(m.id, m.run)
+        c?.decideRun(m.id, m.run, m.remember)
         return
       case "open": {
         const uri = vscode.Uri.file(this.resolvePath(m.file))

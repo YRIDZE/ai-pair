@@ -86,7 +86,7 @@ export function panelHtml(cspSource: string): string {
   #run.confirm { border-color: var(--read); }
   #run-label { color: var(--vscode-descriptionForeground); margin-bottom: 4px; }
   #run-cmd { font-family: var(--vscode-editor-font-family); white-space: pre-wrap; overflow-wrap: anywhere; }
-  #run-actions { display: none; gap: 6px; margin-top: 8px; }
+  #run-actions { display: none; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   #run.confirm #run-actions { display: flex; }
   #run-go { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
   #run-go:hover { background: var(--vscode-button-hoverBackground); }
@@ -128,7 +128,11 @@ export function panelHtml(cspSource: string): string {
     <div id="run">
       <div id="run-label"></div>
       <div id="run-cmd"></div>
-      <div id="run-actions"><button id="run-go">Run</button><button id="run-skip">Skip</button></div>
+      <div id="run-actions">
+        <button id="run-go">Run</button>
+        <button id="run-always" title="Run it, and run exactly this command without asking until the session ends">Allow for session</button>
+        <button id="run-skip">Skip</button>
+      </div>
     </div>
   </section>
   <section id="history"></section>
@@ -141,7 +145,7 @@ export function panelHtml(cspSource: string): string {
     turn: $("turn"), end: $("end"), reply: $("reply"), now: $("now-text"), ref: $("now-ref"),
     reading: $("reading"), fill: $("reading-fill"), history: $("history"),
     attach: $("attach"), attachRef: $("attach-ref"), attachX: $("attach-x"),
-    run: $("run"), runLabel: $("run-label"), runCmd: $("run-cmd"), runGo: $("run-go"), runSkip: $("run-skip"),
+    run: $("run"), runLabel: $("run-label"), runCmd: $("run-cmd"), runGo: $("run-go"), runAlways: $("run-always"), runSkip: $("run-skip"),
   };
   let active = false, turn = "agent", paused = false, replaying = false;
   let selection = null, selectionDismissed = false;   // the programmer's selection, offered with the reply
@@ -354,8 +358,10 @@ export function panelHtml(cspSource: string): string {
     vscode.postMessage({ type: "turn", ...(message ? { message } : {}), ...(attach ? { attach } : {}) });
   };
   ui.attachX.onclick = () => { selectionDismissed = true; syncAttach(); };
-  ui.runGo.onclick = () => { if (runId !== null) vscode.postMessage({ type: "runDecision", id: runId, run: true }); };
-  ui.runSkip.onclick = () => { if (runId !== null) vscode.postMessage({ type: "runDecision", id: runId, run: false }); };
+  const decide = (run, remember) => { if (runId !== null) vscode.postMessage({ type: "runDecision", id: runId, run, remember }); };
+  ui.runGo.onclick = () => decide(true, false);
+  ui.runAlways.onclick = () => decide(true, true);
+  ui.runSkip.onclick = () => decide(false, false);
   ui.end.onclick = () => vscode.postMessage({ type: "end" });
   for (const b of document.querySelectorAll("#speed button")) {
     b.onclick = () => vscode.postMessage({ type: "speed", value: Number(b.dataset.speed) });

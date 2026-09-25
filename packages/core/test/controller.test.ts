@@ -477,6 +477,31 @@ describe("run", () => {
     expect(editor.commands).toEqual([])
   })
 
+  it("runs a command allowed for the session without asking again, until the session ends", async () => {
+    const { editor, panel, controller } = setup()
+    const confirms = () => panel.events.filter((e) => e.type === "run" && e.phase === "confirm")
+    const allow = (remember: boolean) => {
+      const last = confirms().at(-1)!
+      controller.decideRun(last.type === "run" ? last.id : -1, true, remember)
+    }
+    await controller.start()
+    await controller.step([{ run: "npm test" }])
+    await advance(10)
+    allow(true)
+    await until(controller.step([{ run: "npm test" }]))
+    await until(controller.step([{ run: "npm run build" }]))
+    expect(confirms()).toHaveLength(2)
+    allow(false)
+    await until(controller.step([]))
+    expect(editor.commands.map((c) => c.command)).toEqual(["npm test", "npm test", "npm run build"])
+
+    await until(controller.end())
+    await controller.start()
+    await controller.step([{ run: "npm test" }])
+    await advance(10)
+    expect(confirms()).toHaveLength(3)
+  })
+
   it("runs once the programmer allows it", async () => {
     const { editor, panel, controller } = setup()
     await controller.start()

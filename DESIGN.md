@@ -73,7 +73,8 @@ Behavior:
   selection is sent once. *Ask the Agent About the Selection* in the editor's
   context menu focuses the reply box.
 - **Commands.** When the agent plays a `run`, a box under the current message
-  shows the command with **Run** and **Skip** (unless
+  shows the command with **Run**, **Allow for session** (the same command
+  won't ask again until the session ends) and **Skip** (unless
   `aiPair.confirmCommands` is off), with the cursor in its read state. The
   command then runs in an *AI Pair* terminal, revealed without taking focus,
   and the history records its exit code.
