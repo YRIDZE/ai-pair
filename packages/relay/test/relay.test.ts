@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Bridge, Controller } from "@ai-pair/core"
 import { FakeEditor, FakePanel, testConfig } from "../../core/test/fake"
 import { EditorLink, findWindows } from "../src/link"
-import { createServer } from "../src/server"
+import { agentGuide, createServer } from "../src/server"
 
 const fast = {
   ...testConfig,
@@ -173,5 +173,13 @@ describe("discovery", () => {
     )
     const client = await connect()
     expect((await call(client, "start")).error).toBe(false)
+  })
+})
+
+describe("agent guide", () => {
+  it("is everything after the first horizontal rule, whatever the line endings", () => {
+    const lf = "# Agent Guide\n\nFor maintainers.\n\n---\n\n## You are pair programming\n\nDrive.\n"
+    expect(agentGuide(lf)).toBe("## You are pair programming\n\nDrive.")
+    expect(agentGuide(lf.replaceAll("\n", "\r\n"))).toBe("## You are pair programming\r\n\r\nDrive.")
   })
 })

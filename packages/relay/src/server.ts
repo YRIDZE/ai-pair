@@ -10,8 +10,8 @@ export const INSTRUCTIONS = `Live pair programming in the programmer's editor (V
 
 /** The agent-facing part of AGENT_GUIDE.md: everything after the first horizontal rule. */
 export function agentGuide(markdown: string): string {
-  const rule = markdown.indexOf("\n---\n")
-  return (rule === -1 ? markdown : markdown.slice(rule + 5)).trim()
+  const rule = /\r?\n---\r?\n/.exec(markdown)
+  return (rule ? markdown.slice(rule.index + rule[0].length) : markdown).trim()
 }
 
 export function startPrompt(task?: string): string {
