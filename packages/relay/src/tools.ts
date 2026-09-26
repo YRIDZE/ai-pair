@@ -39,8 +39,16 @@ const Action = z.union([
           .int()
           .optional()
           .describe("Instead of `text`: this many lines down (negative: up) from your cursor, to the end of that line. Like arrow keys."),
+        block_end: z
+          .boolean()
+          .optional()
+          .describe(
+            "Then leave the innermost bracket pair ( ), [ ] or { } still open at that point: land just past its closing bracket, or with `at: \"start\"` inside it, right after its last contents. With `text`, anchor on the opening line including its bracket (`if err != nil {`); without, it's the block your cursor is in. Use it instead of counting lines to get past or to the end of a block.",
+          ),
       })
-      .describe("Move your cursor, to the end of an anchor's match (\"after this text\") or to a position."),
+      .describe(
+        "Move your cursor, to the end of an anchor's match (\"after this text\") or to a position. The report's `cursor.inside` names the line opening the block the cursor is in: check it before typing into a spot you reached by counting.",
+      ),
   }),
   z.object({
     select: z

@@ -299,6 +299,12 @@ type_fast ";"
   sees what's about to change.
 - **Anchors:** use short, unique text. For local moves, use `direction`
   relative to your cursor.
+- **Move by blocks, not by counting lines.** To get past a block, anchor on
+  its opening line with the bracket and add `block_end: true`
+  (`text: "if err != nil {", block_end: true`); to add a line at the end of a
+  block's body, add `at: "start"` too. Keep `lines` for stepping into a gap
+  you just made. After a move to a spot you can't see well, check the
+  report's `cursor.inside` names the block you meant before typing into it.
 - **The buffer is the truth.** Use `read` for files the programmer may have
   touched; the editor may differ from disk.
 

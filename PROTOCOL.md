@@ -233,6 +233,17 @@ Instead of an anchor, `position: "file_start"` or `"file_end"` may be given, or
 that line, like arrow keys. It's what the agent needs to step into space it
 has just made.
 
+`block_end: true` then leaves the innermost bracket pair (`()`, `[]` or `{}`)
+still open at that point: the cursor lands just past its closing bracket, or,
+with `at: "start"`, inside it, right after its last contents (before the
+whitespace and newline that precede the closing bracket). The point is the end
+of the anchor match, or the agent cursor when no anchor is given, so an
+anchor on a block's opening line, bracket included (`if err != nil {`), means
+"past that block", and a bare `block_end` means "out of the block I'm in". It
+fails with `no_block` if no bracket is open there or the pair is never closed.
+Brackets inside string literals and `//` or `/* */` comments don't count; it's
+a heuristic, not a parser.
+
 ### `select`
 
 Selects the anchor's match, or the range from the start of `from` to the end
@@ -336,7 +347,10 @@ type Report = {
   }
   events: Event[]             // programmer events since the last report, in order
   turn: "agent" | "user"
-  cursor?: { file: string, line: number, column: number, selection?: Range }  // absent before the first move
+  cursor?: {                  // absent before the first move
+    file: string, line: number, column: number, selection?: Range
+    inside?: { line: number, text: string }  // the line opening the innermost bracket pair
+  }                                          // around the cursor; absent at the top level
   waiting?: true              // returned due to MAX_BLOCK; carry on as usual
 }
 
@@ -354,6 +368,7 @@ type BatchResult = {
     index: number
     kind: "anchor_not_found" | "anchor_ambiguous" | "no_selection" | "no_file"
         | "not_your_turn" | "invalid_action" | "command_failed" | "command_declined"
+        | "no_block"
     message: string
     candidates?: { line: number, context: string }[]
   }

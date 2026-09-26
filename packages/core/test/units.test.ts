@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { resolveAnchor, resolveSpan } from "../src/anchors"
+import { closingBracket, contentsEnd, openBrackets } from "../src/blocks"
 import { planTyping, readingTime } from "../src/typing"
 import { terminalText } from "../src/text"
 import { samePath, withinFolder, type PathStyle } from "../src/paths"
@@ -123,5 +124,35 @@ describe("typing", () => {
     expect(readingTime("Hi.", reading)).toBe(1000)
     expect(readingTime(Array(10).fill("word").join(" "), reading)).toBe(1800)
     expect(readingTime(Array(100).fill("word").join(" "), reading)).toBe(6000)
+  })
+})
+
+describe("blocks", () => {
+  const code = [
+    "func f() {",
+    "\tif err != nil {",
+    '\t\treturn fmt.Errorf("bad } here: %w", err) // and { here',
+    "\t}",
+    "\t/* ( */ x := []int{1, 2}",
+    "}",
+    "",
+  ].join("\n")
+  const at = (needle: string) => code.indexOf(needle) + needle.length
+
+  it("finds the brackets open at a point, skipping strings and comments", () => {
+    expect(openBrackets(code, at("return")).map((b) => b.char)).toEqual(["{", "{"])
+    expect(openBrackets(code, at("err)") - 1).map((b) => b.char)).toEqual(["{", "{", "("])
+    expect(openBrackets(code, at("{1")).map((b) => b.char)).toEqual(["{", "{"])
+    expect(openBrackets(code, code.length)).toEqual([])
+  })
+
+  it("finds the bracket that closes one, and the end of its contents", () => {
+    const inner = openBrackets(code, at("if err != nil {")).at(-1)!
+    const close = closingBracket(code, inner)!
+    expect(code.slice(close - 2, close + 1)).toBe("\n\t}")
+    expect(code.slice(0, contentsEnd(code, inner, close)).endsWith("// and { here")).toBe(true)
+    const outer = openBrackets(code, at("func f() {")).at(-1)!
+    expect(closingBracket(code, outer)).toBe(code.lastIndexOf("}"))
+    expect(closingBracket("{ (", { offset: 0, char: "{" })).toBeUndefined()
   })
 })

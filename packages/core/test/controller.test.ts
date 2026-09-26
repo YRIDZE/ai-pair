@@ -104,6 +104,32 @@ describe("editing", () => {
     expect(editor.edits.map((e) => e.text)).toEqual(["a", "\r\n  ", "b", "\r\n", "c"])
   })
 
+  it("moves past a block, or to the end of its contents, without counting lines", async () => {
+    const code = "func f() {\n\tif err != nil {\n\t\treturn err\n\t}\n}\n"
+    const { editor, controller } = setup({ "a.go": code })
+    await controller.start()
+    await controller.step([
+      { move: { file: "a.go", text: "if err != nil {", block_end: true } },
+      { type: "\n\tlog()" },
+      { move: { text: "return err", block_end: true, at: "start" } },
+      { type: " // done" },
+    ])
+    const report = await until(controller.step([{ move: { text: "log()" } }]))
+    expect(editor.text("a.go")).toBe("func f() {\n\tif err != nil {\n\t\treturn err // done\n\t}\n\tlog()\n}\n")
+    expect(report.batches[0]!.status).toBe("completed")
+    const last = await until(controller.step([]))
+    expect(last.cursor?.inside).toEqual({ line: 1, text: "func f() {" })
+  })
+
+  it("refuses to leave a block when none is open", async () => {
+    const { controller } = setup({ "a.ts": "const a = 1\n" })
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts", text: "a = 1", block_end: true } }])
+    const report = await until(controller.step([]))
+    expect(report.batches[0]).toMatchObject({ status: "failed", error: { index: 0, kind: "no_block" } })
+    expect(report.cursor).toBeUndefined()
+  })
+
   it("moves by lines, to the end of the line, to type into a gap made first", async () => {
     const { editor, controller } = setup({ "a.ts": "a\nb\n" })
     await controller.start()

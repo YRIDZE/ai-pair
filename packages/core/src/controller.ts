@@ -18,9 +18,10 @@ import type {
 import * as nodePath from "node:path"
 import { ToolError } from "@ai-pair/protocol"
 import { resolveAnchor, resolveSpan, type Resolution } from "./anchors"
+import { closingBracket, contentsEnd, openBrackets } from "./blocks"
 import { fileDiff } from "./diff"
 import type { AgentState, Change, CursorView, EditorPort, PanelPort, Ref, SharedSelection } from "./ports"
-import { isLineStart, lineEnd, position, splitLines } from "./text"
+import { isLineStart, lineEnd, lineText, position, splitLines } from "./text"
 import { Timeline } from "./timeline"
 import { defaultTiming, withOverrides, type Timing, type TimingOverrides } from "./timing"
 import { planTyping, readingTime } from "./typing"
@@ -512,6 +513,11 @@ export class Controller {
     if (s.selection) {
       info.selection = { from: position(text, s.selection.start), to: position(text, s.selection.end) }
     }
+    const open = openBrackets(text, s.cursor.offset).at(-1)
+    if (open) {
+      const { line } = position(text, open.offset)
+      info.inside = { line, text: lineText(text, line).trim() }
+    }
     return info
   }
 
@@ -671,12 +677,22 @@ export class Controller {
         const line = position(text, s.cursor.offset).line + m.lines
         offset = lineEnd(text, Math.max(1, Math.min(splitLines(text).length, line)))
       } else if (m.position === "file_end") offset = text.length
-      else if (m.position === "file_start" || m.text === undefined) offset = 0
+      else if (m.position === "file_start") offset = 0
+      else if (m.text === undefined) offset = m.block_end && s.cursor?.file === file ? s.cursor.offset : 0
       else {
         const from = s.cursor?.file === file ? s.cursor.offset : 0
         const r = resolveAnchor(text, m as Anchor, from)
         if (!r.ok) return failed(r)
-        offset = m.at === "start" ? r.range.start : r.range.end
+        offset = m.at === "start" && !m.block_end ? r.range.start : r.range.end
+      }
+      if (m.block_end) {
+        const open = openBrackets(text, offset).at(-1)
+        if (!open) return fail("no_block", `No bracket is open at line ${position(text, offset).line}, so there is no block to leave.`)
+        const close = closingBracket(text, open)
+        if (close === undefined) {
+          return fail("no_block", `The \`${open.char}\` on line ${position(text, open.offset).line} is never closed.`)
+        }
+        offset = m.at === "start" ? contentsEnd(text, open, close) : close + 1
       }
       const near =
         s.cursor?.file === file &&

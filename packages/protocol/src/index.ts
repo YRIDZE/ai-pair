@@ -13,6 +13,8 @@ export type MoveTarget = (Partial<Anchor> & { position?: "file_start" | "file_en
   at?: "start" | "end"
   /** Relative: this many lines down (negative: up) from the cursor, to the end of that line. */
   lines?: number
+  /** Out of the innermost bracket pair still open at the target: past its closing bracket, or with `at: "start"` inside it, after its contents. */
+  block_end?: boolean
 }
 
 export type Action =
@@ -38,6 +40,7 @@ export type ErrorKind =
   | "invalid_action"
   | "command_failed"
   | "command_declined"
+  | "no_block"
 
 export type Candidate = { line: number; context: string }
 
@@ -87,6 +90,8 @@ export type CursorInfo = {
   line: number
   column: number
   selection?: { from: { line: number; column: number }; to: { line: number; column: number } }
+  /** The line that opens the innermost bracket pair around the cursor; absent at the top level. */
+  inside?: { line: number; text: string }
 }
 
 export type Report = {
