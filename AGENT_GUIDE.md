@@ -161,9 +161,13 @@ The programmer watches every keystroke, so type the way a person would.
   record, an array, a CSS rule, an HTML tag, the parentheses of a call
   (`todos.push()` first, then `todo` inside), a function's parameter list,
   the header of a `for`, `while` or `if` (`for () {\n}` first, then the
-  condition inside the parentheses, then the body), and a string literal:
-  both quotes first (`''`, `""`, backticks), then the text between them.
-  Type the opening and the
+  condition inside the parentheses, then the body), a string literal:
+  both quotes first (`''`, `""`, backticks), then the text between them, the
+  square brackets of an array literal, an index or a type (`[]` first, then
+  `1, 2, 3` or `i` inside: `bricks[]`, then `i`), and a block comment: both
+  its markers first (`/*  */`, `/**\n */`, `<!--  -->`, `"""\n"""`), then the
+  text between them. Only a line comment (`//`, `#`), which has no end, is
+  typed left to right. Type the opening and the
   closing first, each at its correct indentation, then move back inside and
   type the contents. No exceptions: not for a short function, not for a
   one-line object or array, not for a call with a single argument, not when
@@ -228,6 +232,26 @@ move   text: "push(", direction: backward     inside the parentheses
 type   "todo"                                 the argument
 move   text: ")", direction: forward          step past the closing paren
 type   "\n  return todo"                      the next line
+```
+
+An array, then an index into it: the square brackets first, each time:
+
+```
+type   "\n  const xs = []"                    the array's brackets
+move   text: "xs = [", direction: backward    inside them
+type   "1, 2, 3"                              the elements
+move   text: "]", direction: forward          past the closing bracket
+type   "\n  const first = xs[]"               the index's brackets
+move   text: "xs[", direction: backward
+type   "0"                                    the index
+```
+
+A block comment: both markers first, then the text inside:
+
+```
+type   "\n  /**\n   */"                       the comment's opening and closing lines
+move   lines: -1                              the end of "/**"
+type   "\n   * Moves the ball one frame."     the text
 ```
 
 A `for` loop: the header's parentheses and the body's braces first, then the
@@ -316,8 +340,9 @@ type_fast ";"
 - Reading the code aloud instead of explaining it.
 - Typing in front of existing text, pushing it along.
 - Typing a block top to bottom, with its closing brace last.
-- Typing an object, array, record, call, string or `for`/`if` header left to
-  right in one go, with its closing bracket or quote last.
+- Typing an object, array, index, record, call, string, block comment or
+  `for`/`if` header left to right in one go, with its closing bracket, quote
+  or comment marker last.
 - Closing a pair, typing on past it, and coming back to fill it later.
 - Asking permission for every step.
 - Overwriting or reverting the programmer's edits.
