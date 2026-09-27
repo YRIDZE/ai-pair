@@ -97,11 +97,17 @@ one of these statuses:
 |---------------|----------------------------------------------------------------------|
 | `completed`   | All actions played.                                                  |
 | `interrupted` | Playback was stopped by an interrupting event partway through.       |
-| `failed`      | An action could not be performed (e.g. an anchor didn't resolve).    |
+| `failed`      | An action could not be performed (e.g. a command exited nonzero).    |
 | `discarded`   | Never started, because an earlier batch didn't complete or an interrupting event arrived first. |
 
 Rules:
 
+- **Rejection.** A batch that would fail, as far as the extension can tell
+  when it's submitted (an anchor that doesn't resolve, a malformed action, an
+  edit during the programmer's turn), is **rejected**: `step` returns at once
+  with the action that would fail, the error, and the code as it would read
+  then. Nothing of it is queued, and the batches queued before it are
+  unaffected.
 - **Blocking.** `step` enqueues its batch and blocks until the queue holds only
   that batch (i.e. everything before it finished), or until an interrupting
   event occurs.
@@ -381,7 +387,8 @@ lines, not as JSON strings full of escapes. It says, in order:
      An interrupted action comes first, reduced to what it didn't do yet; a
      failed batch's failing action comes first.
 3. **The batch this `step` submitted**, if it hasn't finished: playing or
-   queued.
+   queued. Or, if it was rejected, the action that would fail, the error, and
+   the code as it would read then.
 4. **The agent cursor**, only when it isn't where the agent last saw it in a
    report, e.g. because the programmer's edits moved it.
 5. Whether the call returned because `MAX_BLOCK` elapsed, whether it's the
@@ -425,6 +432,12 @@ Internally, the editor produces a structured report, which the relay renders:
 type Report = {
   batches: BatchResult[]      // finished since the last report, in order
   submitted?: { id: number, status: "queued" | "playing" }  // step only, while unfinished
+  rejected?: {                // step only: the batch wasn't queued, because it would fail
+    index: number             // of the action that would fail, from 1
+    action: Action
+    error: BatchError
+    code?: Code               // how the code would read then
+  }
   events: Event[]             // since the last report, in order
   turn: "agent" | "user"
   cursor?: Code               // only when it isn't where the agent last saw it
@@ -435,12 +448,7 @@ type BatchResult = {
   id: number
   status: "completed" | "interrupted" | "failed" | "discarded"
   code?: Code
-  error?: {                   // for a command's failure, about its `run`; else the first unplayed action
-    kind: "anchor_not_found" | "anchor_ambiguous" | "no_selection" | "no_file"
-        | "not_your_turn" | "invalid_action" | "command_failed" | "command_declined"
-    message: string
-    candidates?: { line: number, context: string }[]
-  }
+  error?: BatchError          // for a command's failure, about its `run`; else the first unplayed action
   unplayed?: Action[]
   runs?: {                    // one per `run` that started
     command: string
@@ -450,6 +458,13 @@ type BatchResult = {
     running?: true            // still running in its terminal
     shell?: string
   }[]
+}
+
+type BatchError = {
+  kind: "anchor_not_found" | "anchor_ambiguous" | "no_selection" | "no_file"
+      | "not_your_turn" | "invalid_action" | "command_failed" | "command_declined"
+  message: string
+  candidates?: { line: number, context: string }[]
 }
 
 type Code = {                 // the cursor marked with ▌ in its line
@@ -592,15 +607,18 @@ Not played:
 ### Ambiguous anchor
 
 ```
-← report
-Batch 7 failed, in src/server.ts:
-18  ▌
+→ step
+[{ "say": "Now the response." },
+ { "move": { "before": "  return res.json(", "after": "" } }, ...]
+← returns immediately
+Your batch was rejected: its action 2 would fail:
+  {"move":{"before":"  return res.json(","after":""}}
 anchor_ambiguous: 2 matches for "  return res.json("; make it longer to be unique, or add near_line
   line 12: return res.json(todos);
   line 31: return res.json(todo);
-Not played, starting with the one that failed:
-  {"move":{"before":"  return res.json(","after":""}}
-  ...
+The code would read then, in src/server.ts:
+18  ▌
+Nothing of it was queued. Fix it and submit the whole batch again.
 ```
 
 ### Turn handoff

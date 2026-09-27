@@ -1,30 +1,15 @@
-// The protocol state machine: sessions, the batch queue, playback, and reports.
+// The protocol state machine: sessions, the batch queue, and reports. Playing a batch is player.ts.
 // See PROTOCOL.md for the rules implemented here.
 
-import type {
-  Action,
-  Anchor,
-  BatchResult,
-  Candidate,
-  Code,
-  ErrorKind,
-  Event,
-  Excerpt,
-  FileContent,
-  Report,
-  RunResult,
-  Turn,
-  TypeText,
-} from "@ai-pair/protocol"
-import * as nodePath from "node:path"
-import { actionKinds, CURSOR_MARKER, moveProblem, ToolError } from "@ai-pair/protocol"
-import { resolveSpan, resolveSpot, type Resolution } from "./anchors"
+import type { Action, BatchResult, Event, Excerpt, FileContent, Report, Turn } from "@ai-pair/protocol"
+import { actionKinds, CURSOR_MARKER, ToolError } from "@ai-pair/protocol"
 import { fileDiff } from "./diff"
-import type { AgentState, Change, CursorView, EditorPort, Focus, PanelPort, Ref, SharedSelection } from "./ports"
-import { isLineStart, lineEnd, position, splitLines } from "./text"
+import { agentPath, displayPath, Player, type Scene } from "./player"
+import type { AgentState, Change, CursorView, EditorPort, PanelPort, Ref, SharedSelection } from "./ports"
+import { rehearse, type Rehearsal } from "./rehearsal"
+import { splitLines } from "./text"
 import { Timeline } from "./timeline"
 import { defaultTiming, withOverrides, type Timing, type TimingOverrides } from "./timing"
-import { planTyping, readingTime } from "./typing"
 
 export type Config = {
   maxBlockMs: number
@@ -54,6 +39,8 @@ type Batch = {
   actions: Action[]
   state: "queued" | "playing" | "done"
   result?: BatchResult
+  /** What it leaves behind, played in memory when it was queued: where the next batch is rehearsed from. */
+  after?: Rehearsal
 }
 
 /** Like `Event`, but edits usually get their diff when the report is taken. */
@@ -61,9 +48,8 @@ type PendingEvent = Exclude<Event, { kind: "edit" }> | { kind: "edit"; file: str
 
 type Session = {
   task?: string
-  /** The agent's working directory, if it gave one: paths to and from the agent are relative to it. */
-  root?: string
-  turn: Turn
+  scene: Scene
+  player: Player
   /** Batches not yet finished; the head may be playing. */
   queue: Batch[]
   /** Finished batches not yet reported. */
@@ -74,27 +60,14 @@ type Session = {
   /** Text of each file edited by the programmer, as of the last report. */
   baselines: Map<string, string>
   latest: Map<string, string>
-  cursor: { file: string; offset: number } | null
-  selection: { start: number; end: number } | null
-  point: { file: string; start: number; end: number } | null
-  /** What the view follows: the cursor, or, right after a `point`, the pointed code. */
-  focus: Focus
-  /** The pointed code is in another file than the cursor, or far from it: looking back changes the view. */
-  pointFar: boolean
   timeline: Timeline
   running: boolean
-  reading: boolean
-  /** A `run` whose command is executing. */
-  commandRunning: boolean
   /** A `run` waiting for the programmer's go-ahead. */
   confirming?: { id: number; command: string; decide: (run: boolean) => void }
-  /** Commands the programmer allowed to run without asking, until the session ends. */
-  allowedCommands: Set<string>
   /** Ended by the programmer; the final report hasn't been delivered yet. */
   ended: boolean
   navigatorReady: boolean
   navigatorTimer?: ReturnType<typeof setTimeout>
-  playing?: Playing
   /** The cursor's line as the agent last saw it in a report, so reports only show it when it changed. */
   seenCursor?: string
 }
@@ -108,38 +81,7 @@ type Call = {
   reject: (error: unknown) => void
 }
 
-/**
- * `consumed`: the action took effect, so it counts as played and isn't returned as unplayed.
- * `rest`: the action took effect in part; this is what's left of it.
- */
-type Outcome =
-  | { kind: "ok" }
-  | { kind: "interrupted"; rest?: Action; consumed?: boolean }
-  | { kind: "error"; error: ErrorKind; message: string; candidates?: Candidate[]; consumed?: boolean }
-
-/** The batch being played: what it touched, for saving and for its report's code. */
-type Playing = {
-  touched: Set<string>
-  runs: RunResult[]
-  /** The text its edits changed, tracked through later edits. */
-  span?: { file: string; start: number; end: number }
-  moved: boolean
-}
-
-/** A report's code longer than this skips lines in the middle. */
-const MAX_CODE_LINES = 40
-
-const ok: Outcome = { kind: "ok" }
-
 const cancelled = () => new ToolError("cancelled", "The call was cancelled.")
-
-function fail(error: ErrorKind, message: string): Outcome {
-  return { kind: "error", error, message }
-}
-
-function failed(r: Resolution & { ok: false }): Outcome {
-  return { kind: "error", error: r.kind, message: r.message, candidates: r.candidates }
-}
 
 export class Controller {
   private session: Session | null = null
@@ -149,7 +91,6 @@ export class Controller {
   private pauseReasons = new Set<string>()
   private speed = 1
   private lastPosted = ""
-  private nextRunId = 1
 
   constructor(
     private readonly editor: EditorPort,
@@ -164,27 +105,38 @@ export class Controller {
       if (this.session && !this.session.ended) {
         throw new ToolError("session_active", "A pairing session is already active in this window.")
       }
-      const s: Session = {
-        task,
+      const scene: Scene = {
         // In the editor's spelling, so paths inside it are reported relative to it.
         root: root && this.editor.resolvePath(root),
         turn: "agent",
+        cursor: null,
+        selection: null,
+        point: null,
+        focus: "cursor",
+        pointFar: false,
+        allowedCommands: new Set(),
+      }
+      const timeline = new Timeline(this.pauseReasons.size > 0)
+      const s: Session = {
+        task,
+        scene,
+        player: new Player(scene, {
+          editor: this.editor,
+          panel: this.panel,
+          pacing: timeline,
+          config: () => this.config,
+          speed: () => this.speed,
+          render: () => this.render(),
+          confirm: (id, command) => this.confirm(s, id, command),
+        }),
         queue: [],
         finished: [],
         events: [],
         stale: false,
         baselines: new Map(),
         latest: new Map(),
-        cursor: null,
-        selection: null,
-        point: null,
-        focus: "cursor",
-        pointFar: false,
-        timeline: new Timeline(this.pauseReasons.size > 0),
+        timeline,
         running: false,
-        reading: false,
-        commandRunning: false,
-        allowedCommands: new Set(),
         ended: false,
         navigatorReady: false,
       }
@@ -192,22 +144,27 @@ export class Controller {
       this.lastPosted = ""
       this.panel.post({ type: "session", active: true, task })
       this.render()
-      return { batches: [], events: [], turn: s.turn }
+      return { batches: [], events: [], turn: scene.turn }
     })
   }
 
   step(actions: Action[], signal?: AbortSignal): Promise<Report> {
-    return this.serialize(signal, () => {
+    return this.serialize(signal, async () => {
       const s = this.requireSession()
       // An empty batch only waits for the queued ones, so it isn't a batch of its own.
       if (actions.length === 0) return this.block("step", {}, signal)
       this.checkOneFile(s, actions)
-      const batch: Batch = { id: this.nextBatchId++, actions, state: "queued" }
-      if (s.stale || s.ended) {
-        this.discard(s, batch)
-      } else {
+      // Played in memory first, so what would fail is reported now, not when the batch plays.
+      const rehearsal = s.stale || s.ended ? undefined : await this.rehearse(s, actions)
+      // An interruption arriving meanwhile discards it, like any batch planned without knowing about it.
+      const current = rehearsal && !s.stale && !s.ended
+      if (current && rehearsal.result.status === "failed") return this.reject(s, actions, rehearsal.result)
+      const batch: Batch = { id: this.nextBatchId++, actions, state: "queued", after: rehearsal?.after }
+      if (current) {
         s.queue.push(batch)
         this.kick(s)
+      } else {
+        this.discard(s, batch)
       }
       return this.block("step", { batch }, signal)
     })
@@ -280,13 +237,13 @@ export class Controller {
   userEdit(file: string, before: string, after: string, changes: Change[]): void {
     const s = this.activeSession()
     if (!s) return
-    for (const change of changes) this.transformPositions(s, file, change)
+    for (const change of changes) s.player.transform(file, change)
     if (!s.baselines.has(file)) {
       s.baselines.set(file, before)
       s.events.push({ kind: "edit", file })
     }
     s.latest.set(file, after)
-    if (s.turn === "agent") {
+    if (s.scene.turn === "agent") {
       this.interrupt(s)
     } else {
       clearTimeout(s.navigatorTimer)
@@ -300,9 +257,9 @@ export class Controller {
 
   takeTurn(): void {
     const s = this.activeSession()
-    if (!s || s.turn === "user") return
-    s.turn = "user"
-    s.focus = "cursor"
+    if (!s || s.scene.turn === "user") return
+    s.scene.turn = "user"
+    s.scene.focus = "cursor"
     s.events.push({ kind: "turn", to: "user" })
     this.panel.post({ type: "turn", to: "user" })
     this.interrupt(s)
@@ -311,8 +268,8 @@ export class Controller {
 
   handBack(message?: string, selection?: SharedSelection): void {
     const s = this.activeSession()
-    if (!s || s.turn === "agent") return
-    s.turn = "agent"
+    if (!s || s.scene.turn === "agent") return
+    s.scene.turn = "agent"
     clearTimeout(s.navigatorTimer)
     const event: Event = { kind: "turn", to: "agent" }
     if (message) event.message = message
@@ -360,7 +317,7 @@ export class Controller {
     if (this.pauseReasons.size > 0) return
     const s = this.session
     if (s) {
-      if (s.turn === "agent" && (s.cursor || s.point)) this.editor.reveal()
+      if (s.scene.turn === "agent" && (s.scene.cursor || s.scene.point)) this.editor.reveal()
       s.timeline.resume()
     }
     this.render()
@@ -382,8 +339,27 @@ export class Controller {
     const s = this.session
     const c = s?.confirming
     if (c?.id !== id) return
-    if (run && remember) s!.allowedCommands.add(c.command)
+    if (run && remember) s!.scene.allowedCommands.add(c.command)
     c.decide(run)
+  }
+
+  /** Waits for the programmer's answer to a `run`, or an interruption. */
+  private confirm(s: Session, id: number, command: string): Promise<boolean> {
+    const signal = s.timeline.signal
+    return new Promise<boolean>((resolve) => {
+      const abort = () => resolve(false)
+      s.confirming = {
+        id,
+        command,
+        decide: (run) => {
+          signal.removeEventListener("abort", abort)
+          resolve(run)
+        },
+      }
+      signal.addEventListener("abort", abort, { once: true })
+    }).finally(() => {
+      s.confirming = undefined
+    })
   }
 
   /** Calibration: overrides on top of the default timing. */
@@ -400,7 +376,7 @@ export class Controller {
   }
 
   get turn(): Turn | null {
-    return this.activeSession()?.turn ?? null
+    return this.activeSession()?.scene.turn ?? null
   }
 
   // ---- Calls and reports -------------------------------------------------
@@ -411,6 +387,22 @@ export class Controller {
     const run = this.chain.then(guarded, guarded)
     this.chain = run.catch(() => {})
     return run
+  }
+
+  /** Plays a batch in memory, from where the queued batches leave off, or the editor as it is. */
+  private rehearse(s: Session, actions: Action[]): ReturnType<typeof rehearse> {
+    const from = s.queue.at(-1)?.after ?? { scene: s.scene, texts: new Map() }
+    return rehearse(this.editor, this.config, from, actions)
+  }
+
+  /** Reports a batch that played in memory failed, without queuing it; nothing else changes. */
+  private async reject(s: Session, actions: Action[], rehearsed: BatchResult): Promise<Report> {
+    const index = actions.length - (rehearsed.unplayed?.length ?? 0) + 1
+    const rejected: NonNullable<Report["rejected"]> = { index, action: actions[index - 1]!, error: rehearsed.error! }
+    if (rehearsed.code) rejected.code = rehearsed.code
+    const report = { ...this.snapshot(s, undefined, false), rejected }
+    this.render()
+    return this.withCursor(s, report)
   }
 
   /** A batch edits one file: it names at most one (in `move` or `point`), and only before its first edit. */
@@ -490,7 +482,7 @@ export class Controller {
       case "listen":
         if (s.finished.some((r) => r.status !== "completed")) return true
         if (s.queue.length > 0) return false
-        if (s.turn === "agent") return s.events.length > 0
+        if (s.scene.turn === "agent") return s.events.length > 0
         return s.events.some((e) => e.kind !== "edit") || (s.navigatorReady && s.events.length > 0)
     }
   }
@@ -512,7 +504,7 @@ export class Controller {
       return
     }
     const closing = s.ended || call.kind === "end"
-    const report = this.snapshot(s, call, timedOut && !closing)
+    const report = this.snapshot(s, call.batch, timedOut && !closing)
     if (closing) {
       this.close(s)
       if (call.kind === "end" && !s.ended) {
@@ -529,8 +521,8 @@ export class Controller {
       const line = b.code?.lines.find((l) => l.text.includes(CURSOR_MARKER))
       if (b.code && line) s.seenCursor = `${b.code.file}:${line.number}:${line.text}`
     }
-    if (!s.cursor) return report
-    const cursor = await this.code(s, { touched: new Set(), runs: [], moved: true })
+    if (!s.scene.cursor) return report
+    const cursor = await s.player.code({ moved: true })
     const line = cursor?.lines[0]
     if (!cursor || !line) return report
     const key = `${cursor.file}:${line.number}:${line.text}`
@@ -539,7 +531,8 @@ export class Controller {
     return { ...report, cursor }
   }
 
-  private snapshot(s: Session, call: Call, waiting: boolean): Report {
+  /** Takes everything not yet reported. `submitted`: the batch the call submitted, if any. */
+  private snapshot(s: Session, submitted: Batch | undefined, waiting: boolean): Report {
     const batches = s.finished.sort((a, b) => a.id - b.id)
     const events: Event[] = []
     for (const e of s.events) {
@@ -564,41 +557,11 @@ export class Controller {
     s.stale = false
     s.navigatorReady = false
 
-    const report: Report = { batches, events, turn: s.turn }
-    const b = call.batch
+    const report: Report = { batches, events, turn: s.scene.turn }
+    const b = submitted
     if (b && b.state !== "done") report.submitted = { id: b.id, status: b.state }
     if (waiting) report.waiting = true
     return report
-  }
-
-  /** The lines the batch changed, extended to the cursor's line, with the cursor marked. */
-  private async code(s: Session, p: Playing): Promise<Code | undefined> {
-    const file = p.span?.file ?? (p.moved ? s.cursor?.file : undefined)
-    if (!file) return undefined
-    const text = await this.editor.getText(file)
-    const lines = splitLines(text)
-    const at = s.cursor?.file === file ? position(text, s.cursor.offset) : undefined
-    let from = at?.line ?? Infinity
-    let to = at?.line ?? -Infinity
-    if (p.span) {
-      // Text ending with a newline changed the lines up to it, not the one after.
-      const end = p.span.end > p.span.start && isLineStart(text, p.span.end) ? p.span.end - 1 : p.span.end
-      from = Math.min(from, position(text, p.span.start).line)
-      to = Math.max(to, position(text, end).line)
-    }
-    const numbers: number[] = []
-    for (let n = from; n <= to; n++) {
-      const long = to - from + 1 > MAX_CODE_LINES
-      if (!long || n < from + MAX_CODE_LINES / 2 || n > to - MAX_CODE_LINES / 2 || n === at?.line) numbers.push(n)
-    }
-    return {
-      file: this.displayPath(s, file),
-      lines: numbers.map((n) => {
-        const line = lines[n - 1] ?? ""
-        if (n !== at?.line) return { number: n, text: line }
-        return { number: n, text: line.slice(0, at.column - 1) + CURSOR_MARKER + line.slice(at.column - 1) }
-      }),
-    }
   }
 
   private close(s: Session): void {
@@ -644,20 +607,8 @@ export class Controller {
         if (!batch) break
         this.startHead(s)
         this.render()
-        const playing: Playing = { touched: new Set(), runs: [], moved: false }
-        s.playing = playing
-        const result = await this.play(s, batch, playing)
-        s.playing = undefined
-        if (playing.runs.length > 0) result.runs = playing.runs
-        if (result.status !== "discarded") {
-          try {
-            const code = await this.code(s, playing)
-            if (code) result.code = code
-          } catch {
-            // The file is gone; the report just can't show it.
-          }
-        }
-        for (const file of playing.touched) {
+        const { result, touched } = await s.player.play(batch.id, batch.actions)
+        for (const file of touched) {
           try {
             await this.editor.save(file)
           } catch {
@@ -686,334 +637,6 @@ export class Controller {
     s.timeline.reset()
   }
 
-  private async play(s: Session, batch: Batch, playing: Playing): Promise<BatchResult> {
-    const { id, actions } = batch
-    for (let i = 0; i < actions.length; i++) {
-      if (s.timeline.isInterrupted) return this.stopped(batch, actions.slice(i), i > 0)
-      let outcome: Outcome
-      try {
-        outcome = await this.perform(s, actions[i]!, playing)
-      } catch (e) {
-        outcome = fail("invalid_action", e instanceof Error ? e.message : String(e))
-      }
-      const rest = actions.slice(i + 1)
-      if (outcome.kind === "interrupted") {
-        if (outcome.consumed) return this.stopped(batch, rest, true)
-        if (outcome.rest) return this.stopped(batch, [outcome.rest, ...rest], true)
-        return this.stopped(batch, actions.slice(i), i > 0)
-      }
-      if (outcome.kind === "error") {
-        const result: BatchResult = { id, status: "failed", error: { kind: outcome.error, message: outcome.message } }
-        if (outcome.candidates) result.error!.candidates = outcome.candidates
-        const unplayed = outcome.consumed ? rest : actions.slice(i)
-        if (unplayed.length > 0) result.unplayed = unplayed
-        return result
-      }
-    }
-    return { id, status: "completed" }
-  }
-
-  /** An interrupted batch. With no visible effect yet, it counts as discarded. */
-  private stopped(batch: Batch, unplayed: Action[], effect: boolean): BatchResult {
-    const result: BatchResult = { id: batch.id, status: effect ? "interrupted" : "discarded" }
-    if (unplayed.length > 0) result.unplayed = unplayed
-    return result
-  }
-
-  private delay(s: Session, ms: number): Promise<boolean> {
-    return s.timeline.sleep(ms / this.speed)
-  }
-
-  private async perform(s: Session, action: Action, playing: Playing): Promise<Outcome> {
-    const kinds = actionKinds(action)
-    if (kinds.length > 1) {
-      return fail("invalid_action", `One action per object, got ${kinds.map((k) => `\`${k}\``).join(" and ")}: make them separate actions, in order.`)
-    }
-    if (s.turn === "user" && !("say" in action) && !("point" in action)) {
-      return fail("not_your_turn", "During the programmer's turn, only `say` and `point` are allowed.")
-    }
-
-    // An action at the cursor brings the view back to it from the code last pointed at. A far jump
-    // back gets a far move's pause, before anything happens there; a `move` has its own.
-    const cursorAction = !("say" in action) && !("point" in action) && !("run" in action)
-    const lookingBack = cursorAction && s.focus === "point"
-    const farBack = lookingBack && s.pointFar
-    if (lookingBack) {
-      s.focus = "cursor"
-      if (farBack && !("move" in action) && s.cursor) {
-        await this.editor.show(s.cursor.file)
-        this.render()
-        if (!(await this.delay(s, this.config.timing.afterMoveFarMs))) return { kind: "interrupted" }
-      }
-      this.render()
-    }
-
-    if ("say" in action) {
-      this.panel.post({ type: "say", text: action.say })
-      const ms = readingTime(action.say, this.config.timing.reading) / this.speed
-      s.reading = true
-      this.panel.post({ type: "reading", ms })
-      this.render()
-      await s.timeline.sleep(ms)
-      s.reading = false
-      this.render()
-      return ok
-    }
-
-    if ("move" in action) {
-      const m = action.move
-      const problem = moveProblem(m)
-      if (problem) return fail("invalid_action", problem)
-      const file = m.file !== undefined ? this.resolvePath(s, m.file) : s.cursor?.file
-      if (!file) return fail("no_file", "The agent cursor isn't in a file yet; give `file`.")
-      const relative = m.lines !== undefined || m.to === "end"
-      if (relative && s.cursor?.file !== file) {
-        return fail("no_file", "`lines` and `to: \"end\"` move relative to your cursor, in its file.")
-      }
-      const t = this.config.timing
-      if (!(await this.delay(s, t.beforeMoveMs))) return { kind: "interrupted" }
-      await this.editor.show(file)
-      const text = await this.editor.getText(file)
-      let offset: number
-      if (relative) {
-        const line = position(text, s.cursor!.offset).line + (m.lines ?? 0)
-        offset = lineEnd(text, Math.max(1, Math.min(splitLines(text).length, line)))
-      } else if (m.to === "file_end") offset = text.length
-      else if (m.before === undefined || m.after === undefined) offset = 0
-      else {
-        const r = resolveSpot(text, { before: m.before, after: m.after, near_line: m.near_line })
-        if (!r.ok) return failed(r)
-        offset = r.range.start
-      }
-      const near =
-        !farBack &&
-        s.cursor?.file === file &&
-        Math.abs(position(text, s.cursor.offset).line - position(text, offset).line) <= t.nearLines
-      s.cursor = { file, offset }
-      s.selection = null
-      playing.moved = true
-      this.render()
-      // The pause is after the move, so the programmer sees where the cursor went before anything happens there.
-      await this.delay(s, near ? t.afterMoveNearMs : t.afterMoveFarMs)
-      return ok
-    }
-
-    if ("select" in action) {
-      if (!s.cursor) return fail("no_file", "The agent cursor isn't in a file yet; `move` first.")
-      if (!(await this.delay(s, this.config.timing.beforeSelectMs))) return { kind: "interrupted" }
-      await this.editor.show(s.cursor.file)
-      const r = resolveSpan(await this.editor.getText(s.cursor.file), action.select)
-      if (!r.ok) return failed(r)
-      s.selection = r.range
-      s.cursor.offset = r.range.end
-      playing.moved = true
-      this.render()
-      await this.delay(s, this.config.timing.afterSelectMs)
-      return ok
-    }
-
-    if ("type" in action || "type_fast" in action) {
-      const fast = "type_fast" in action
-      const parts: unknown = fast ? action.type_fast : action.type
-      if (!Array.isArray(parts) || parts.length !== 2 || !parts.every((p) => typeof p === "string")) {
-        return fail("invalid_action", "Give the text to type as two parts, `[before, after]`: the cursor ends between them.")
-      }
-      return this.type(s, parts as TypeText, fast, playing)
-    }
-
-    if ("delete" in action) {
-      if (!s.cursor || !s.selection) return fail("no_selection", "Nothing is selected; `select` first.")
-      const { file } = s.cursor
-      const { start, end } = s.selection
-      await this.editor.show(file)
-      this.clearPoint(s)
-      s.cursor.offset = start
-      s.selection = null
-      this.touch(playing, file, start, end - start, 0)
-      await this.editor.edit(file, start, end - start, "", { undoStopBefore: true, undoStopAfter: true })
-      this.render()
-      await this.delay(s, this.config.timing.afterDeleteMs)
-      return ok
-    }
-
-    if ("point" in action) {
-      const p = action.point
-      const file = p.file !== undefined ? this.resolvePath(s, p.file) : s.cursor?.file
-      if (!file) return fail("no_file", "The agent cursor isn't in a file yet; give `file`.")
-      if (s.turn === "agent") await this.editor.show(file)
-      const text = await this.editor.getText(file)
-      const r = resolveSpan(text, p)
-      if (!r.ok) return failed(r)
-      s.point = { file, ...r.range }
-      if (s.turn === "agent") {
-        // The view goes to the pointed code, so the `say` about it plays while the programmer looks at it.
-        const cursorLine = s.cursor?.file === file ? position(text, s.cursor.offset).line : undefined
-        const pointLine = position(text, r.range.start).line
-        s.pointFar = cursorLine === undefined || Math.abs(cursorLine - pointLine) > this.config.timing.nearLines
-        s.focus = "point"
-      }
-      this.editor.renderPoint(s.point)
-      this.render()
-      this.panel.post({ type: "point", file: this.editor.displayPath(file), line: position(text, r.range.start).line })
-      await this.delay(s, this.config.timing.afterPointMs)
-      return ok
-    }
-
-    if ("run" in action) return this.runCommand(s, action, playing)
-
-    return fail("invalid_action", `Unknown action: ${JSON.stringify(action)}`)
-  }
-
-  private async runCommand(s: Session, action: { run: string; wait?: number }, playing: Playing): Promise<Outcome> {
-    const command = action.run
-    if (typeof command !== "string" || command.trim() === "") return fail("invalid_action", "`run` needs a command.")
-    const id = this.nextRunId++
-    const signal = s.timeline.signal
-
-    if (this.config.confirmCommands && !s.allowedCommands.has(command)) {
-      this.panel.post({ type: "run", id, command, phase: "confirm" })
-      s.reading = true
-      this.render()
-      const go = await new Promise<boolean>((resolve) => {
-        const abort = () => resolve(false)
-        s.confirming = {
-          id,
-          command,
-          decide: (run) => {
-            signal.removeEventListener("abort", abort)
-            resolve(run)
-          },
-        }
-        signal.addEventListener("abort", abort, { once: true })
-      })
-      s.confirming = undefined
-      s.reading = false
-      this.render()
-      if (!go || signal.aborted) {
-        this.panel.post({ type: "run", id, command, phase: "declined" })
-        if (signal.aborted) return { kind: "interrupted" }
-        return fail("command_declined", "The programmer declined to run this command.")
-      }
-    }
-
-    const requested = action.wait !== undefined ? action.wait * 1000 : this.config.runWaitMs
-    const waitMs = Math.max(0, Math.min(this.config.maxRunWaitMs, requested))
-    this.panel.post({ type: "run", id, command, phase: "running" })
-    s.commandRunning = true
-    this.render()
-    let outcome
-    try {
-      outcome = await this.editor.runCommand(command, { cwd: s.root ?? this.editor.resolvePath("."), waitMs, signal })
-    } catch (e) {
-      this.panel.post({ type: "run", id, command, phase: "declined" })
-      throw e
-    } finally {
-      s.commandRunning = false
-      this.render()
-    }
-    if (outcome.notStarted) {
-      this.panel.post({ type: "run", id, command, phase: "declined" })
-      return { kind: "interrupted" }
-    }
-
-    const result: RunResult = { command, output: outcome.output }
-    if (outcome.exitCode !== undefined && !outcome.running) result.exit_code = outcome.exitCode
-    if (outcome.truncated) result.truncated = true
-    if (outcome.running) result.running = true
-    if (outcome.shell) result.shell = outcome.shell
-    playing.runs.push(result)
-    const phase = outcome.running ? "background" : "done"
-    this.panel.post({ type: "run", id, command, phase, exitCode: result.exit_code })
-
-    if (outcome.running && signal.aborted) return { kind: "interrupted", consumed: true }
-    if (result.exit_code !== undefined && result.exit_code !== 0) {
-      return { kind: "error", error: "command_failed", message: `The command exited with ${result.exit_code}.`, consumed: true }
-    }
-    return ok
-  }
-
-  /** Types `before`, then `after`, then steps back to between them. */
-  private async type(s: Session, [before, after]: TypeText, fast: boolean, playing: Playing): Promise<Outcome> {
-    if (!s.cursor) return fail("no_file", "The agent cursor isn't in a file yet; `move` first.")
-    const cursor = s.cursor
-    await this.editor.show(cursor.file)
-    this.clearPoint(s)
-
-    const doc = await this.editor.getText(cursor.file)
-    const eol = await this.editor.eol(cursor.file)
-    const insertAt = s.selection ? s.selection.start : cursor.offset
-    const { timing } = this.config
-    const scale = fast ? timing.fastFactor : 1
-    const chunks = planTyping(before + after, timing.type, isLineStart(doc, insertAt), this.config.random, scale)
-
-    if (chunks.length === 0 && s.selection) chunks.push({ text: "", delay: 0 })
-    let typed = ""
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i]!
-      if (!(await this.delay(s, chunk.delay))) {
-        if (typed === "") return { kind: "interrupted" }
-        const rest: TypeText =
-          typed.length <= before.length ? [before.slice(typed.length), after] : ["", after.slice(typed.length - before.length)]
-        return { kind: "interrupted", rest: fast ? { type_fast: rest } : { type: rest } }
-      }
-      const insert = eol === "\n" ? chunk.text : chunk.text.replaceAll("\n", eol)
-      const start = s.selection ? s.selection.start : cursor.offset
-      const deleteLength = s.selection ? s.selection.end - s.selection.start : 0
-      // Move the cursor before awaiting, so programmer edits arriving meanwhile transform the right position.
-      cursor.offset = start + insert.length
-      s.selection = null
-      this.touch(playing, cursor.file, start, deleteLength, insert.length)
-      await this.editor.edit(cursor.file, start, deleteLength, insert, {
-        undoStopBefore: i === 0,
-        undoStopAfter: i === chunks.length - 1,
-      })
-      typed += chunk.text
-      this.render()
-    }
-    if (after !== "") {
-      // Into the pair just closed: a move within sight, so the same pause as one.
-      cursor.offset -= eol === "\n" ? after.length : after.replaceAll("\n", eol).length
-      this.render()
-      await this.delay(s, timing.afterMoveNearMs * scale)
-    }
-    return ok
-  }
-
-  private clearPoint(s: Session): void {
-    if (!s.point) return
-    s.point = null
-    this.editor.renderPoint(null)
-  }
-
-  private transformPositions(s: Session, file: string, change: Change): void {
-    const map = (pos: number): number => {
-      if (pos <= change.offset) return pos
-      if (pos >= change.offset + change.deleteLength) return pos + change.text.length - change.deleteLength
-      return change.offset + change.text.length
-    }
-    if (s.cursor?.file === file) s.cursor.offset = map(s.cursor.offset)
-    if (s.cursor?.file === file && s.selection) {
-      s.selection = { start: map(s.selection.start), end: map(s.selection.end) }
-    }
-    if (s.point?.file === file) s.point = { file, start: map(s.point.start), end: map(s.point.end) }
-    const span = s.playing?.span
-    if (span?.file === file) s.playing!.span = { file, start: map(span.start), end: map(span.end) }
-  }
-
-  /** Records an edit of the batch: the file to save, and the text it changed for the report. */
-  private touch(p: Playing, file: string, start: number, removed: number, inserted: number): void {
-    p.touched.add(file)
-    const map = (pos: number): number => {
-      if (pos <= start) return pos
-      if (pos >= start + removed) return pos + inserted - removed
-      return start + inserted
-    }
-    const span = p.span?.file === file ? p.span : undefined
-    p.span = span
-      ? { file, start: Math.min(map(span.start), start), end: Math.max(map(span.end), start + inserted) }
-      : { file, start, end: start + inserted }
-  }
-
   // ---- Shared selections ---------------------------------------------------
 
   private excerpt(s: Session, selection: SharedSelection): Excerpt {
@@ -1027,39 +650,37 @@ export class Controller {
   // ---- Paths ---------------------------------------------------------------
 
   private resolvePath(s: Session, file: string): string {
-    return this.editor.resolvePath(s.root ? nodePath.resolve(s.root, file) : file)
+    return agentPath(this.editor, s.scene.root, file)
   }
 
   private displayPath(s: Session, file: string): string {
-    if (!s.root) return this.editor.displayPath(file)
-    const rel = nodePath.relative(s.root, file)
-    return rel.startsWith("..") || nodePath.isAbsolute(rel) ? file : rel
+    return displayPath(this.editor, s.scene.root, file)
   }
 
   // ---- Rendering -----------------------------------------------------------
 
   private cursorView(s: Session): CursorView | null {
-    if (!s.cursor) return null
-    return s.selection ? { ...s.cursor, selection: s.selection } : { ...s.cursor }
+    if (!s.scene.cursor) return null
+    return s.scene.selection ? { ...s.scene.cursor, selection: s.scene.selection } : { ...s.scene.cursor }
   }
 
   private state(): AgentState {
     const s = this.session
-    if (!s || s.turn === "user") return "navigator"
+    if (!s || s.scene.turn === "user") return "navigator"
     if (this.pauseReasons.size > 0) return "paused"
-    if (s.queue.length > 0) return s.reading ? "read" : s.commandRunning ? "running" : "typing"
+    if (s.queue.length > 0) return s.player.reading ? "read" : s.player.commandRunning ? "running" : "typing"
     return this.call?.kind === "listen" ? "listening" : "thinking"
   }
 
   private render(): void {
     const s = this.activeSession()
     const state = this.state()
-    this.editor.renderCursor(s ? this.cursorView(s) : null, state, s?.focus ?? "cursor")
+    this.editor.renderCursor(s ? this.cursorView(s) : null, state, s?.scene.focus ?? "cursor")
     if (!s) return
     const paused = this.pauseReasons.size > 0
-    const key = `${state}/${s.turn}/${paused}`
+    const key = `${state}/${s.scene.turn}/${paused}`
     if (key === this.lastPosted) return
     this.lastPosted = key
-    this.panel.post({ type: "state", state, turn: s.turn, paused })
+    this.panel.post({ type: "state", state, turn: s.scene.turn, paused })
   }
 }

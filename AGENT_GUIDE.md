@@ -311,11 +311,12 @@ type_fast ["./todos", ""]                      its text
   cursor with your next move or edit. Never `say` first and `point` after:
   they'd read about code they can't see yet.
 - **Anchors: long enough to be unique.** A short text like `) {` or
-  `import {` often occurs several times, and then the action fails and your
-  next batch is discarded. Use a whole line, or a spot with context on both
-  sides: `before: "import { ", after: "type Context"`. `near_line` is only a
-  tie-breaker. Most moves within a line don't need an anchor at all: `type`
-  leaves you inside the pair, and `to: "end"` or `lines: 1` steps past it.
+  `import {` often occurs several times, and then `step` rejects the batch
+  and you have to submit it again. Use a whole line, or a spot with context
+  on both sides: `before: "import { ", after: "type Context"`. `near_line` is
+  only a tie-breaker. Most moves within a line don't need an anchor at all:
+  `type` leaves you inside the pair, and `to: "end"` or `lines: 1` steps past
+  it.
 - **The buffer is the truth.** Use `read` for files the programmer may have
   touched; the editor may differ from disk.
 

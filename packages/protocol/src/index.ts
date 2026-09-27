@@ -96,13 +96,15 @@ export type Code = {
   lines: { number: number; text: string }[]
 }
 
+export type BatchError = { kind: ErrorKind; message: string; candidates?: Candidate[] }
+
 export type BatchResult = {
   id: number
   status: BatchStatus
   /** The code the batch produced, as it read when the batch ended; also just the cursor's line after a move. */
   code?: Code
   /** The error of a failed batch, about the first action in `unplayed`. */
-  error?: { kind: ErrorKind; message: string; candidates?: Candidate[] }
+  error?: BatchError
   /**
    * The actions that didn't play, verbatim, ready to resubmit. An interrupted `type` comes first, reduced to
    * what it didn't type; a failed batch's failing action comes first.
@@ -133,6 +135,11 @@ export type Report = {
   batches: BatchResult[]
   /** The batch this `step` submitted, unless it's already finished and in `batches`. */
   submitted?: { id: number; status: "queued" | "playing" }
+  /**
+   * The batch this `step` was given, if it wasn't queued: played in memory, from where the queued
+   * batches leave off, its action `index` (from 1) would fail. `code` is how the code would read then.
+   */
+  rejected?: { index: number; action: Action; error: BatchError; code?: Code }
   events: Event[]
   turn: Turn
   /** The agent cursor's line, when it isn't where the agent last saw it: in this report's code, or an earlier report. */

@@ -128,7 +128,7 @@ const SUMMARY =
   "That's the demo: the direction first, then one path end to end, then broadening one case at a time. Updating and deleting would follow the same cycle."
 
 function derailed(report: Report): boolean {
-  return report.events.length > 0 || report.batches.some((b) => b.status !== "completed")
+  return report.events.length > 0 || report.rejected !== undefined || report.batches.some((b) => b.status !== "completed")
 }
 
 export async function playDemo(controller: Controller, root: string): Promise<void> {

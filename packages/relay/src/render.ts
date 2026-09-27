@@ -1,7 +1,7 @@
 // What the agent reads: reports and files as text, with code as numbered lines instead of JSON
 // strings full of escapes. See "Reports" in PROTOCOL.md.
 
-import type { BatchResult, Code, Event, Excerpt, FileContent, Report, RunResult } from "@ai-pair/protocol"
+import type { BatchError, BatchResult, Code, Event, Excerpt, FileContent, Report, RunResult } from "@ai-pair/protocol"
 
 export type ReportingTool = "start" | "step" | "listen" | "end"
 
@@ -11,6 +11,7 @@ export function renderReport(report: Report, tool: ReportingTool): string {
   for (const e of report.events) sections.push(renderEvent(e))
   for (const b of report.batches) sections.push(renderBatch(b))
   if (report.submitted) sections.push(`Batch ${report.submitted.id} is ${report.submitted.status}.`)
+  if (report.rejected) sections.push(renderRejected(report.rejected))
   if (report.cursor) sections.push(`Your cursor, in ${report.cursor.file}:\n${renderLines(report.cursor.lines)}`)
   if (report.waiting) {
     sections.push(tool === "listen" ? "Nothing has happened yet. Call `listen` again." : "Nothing has finished yet. Carry on as usual.")
@@ -48,15 +49,28 @@ function renderBatch(b: BatchResult): string {
   const parts = [b.code ? `Batch ${b.id} ${b.status}, in ${b.code.file}:` : `Batch ${b.id} ${b.status}.`]
   if (b.code) parts.push(renderLines(b.code.lines))
   for (const run of b.runs ?? []) parts.push(renderRun(run))
-  if (b.error) {
-    const candidates = (b.error.candidates ?? []).map((c) => `\n  line ${c.line}: ${c.context}`).join("")
-    parts.push(`${b.error.kind}: ${b.error.message}${candidates}`)
-  }
+  if (b.error) parts.push(renderError(b.error))
   if (b.unplayed) {
     const label = b.error && b.error.kind !== "command_failed" ? "Not played, starting with the one that failed:" : "Not played:"
     parts.push([label, ...b.unplayed.map((a) => `  ${JSON.stringify(a)}`)].join("\n"))
   }
   return parts.join("\n")
+}
+
+function renderRejected(r: NonNullable<Report["rejected"]>): string {
+  const parts = [
+    `Your batch was rejected: its action ${r.index} would fail:`,
+    `  ${JSON.stringify(r.action)}`,
+    renderError(r.error),
+  ]
+  if (r.code) parts.push(`The code would read then, in ${r.code.file}:\n${renderLines(r.code.lines)}`)
+  parts.push("Nothing of it was queued. Fix it and submit the whole batch again.")
+  return parts.join("\n")
+}
+
+function renderError(error: BatchError): string {
+  const candidates = (error.candidates ?? []).map((c) => `\n  line ${c.line}: ${c.context}`).join("")
+  return `${error.kind}: ${error.message}${candidates}`
 }
 
 function renderRun(run: RunResult): string {

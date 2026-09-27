@@ -27,6 +27,25 @@ describe("reports", () => {
     expect(text).toMatch(/Batch 6 is playing/)
   })
 
+  it("says a rejected batch wasn't queued, which action would fail and why, and how the code would read", () => {
+    const text = renderReport(
+      report({
+        rejected: {
+          index: 3,
+          action: { move: { before: "x", after: "" } },
+          error: { kind: "anchor_ambiguous", message: "2 matches", candidates: [{ line: 1, context: "x" }] },
+          code: { file: "a.ts", lines: [{ number: 3, text: "y▌" }] },
+        },
+      }),
+      "step",
+    )
+    expect(text).toMatch(/rejected/)
+    expect(text).toMatch(/action 3 would fail:\n  \{"move":\{"before":"x","after":""\}\}/)
+    expect(text).toMatch(/anchor_ambiguous: 2 matches\n  line 1: x/)
+    expect(text).toMatch(/a\.ts:\n3  y▌/)
+    expect(text).toMatch(/submit the whole batch again/)
+  })
+
   it("shows gaps in long code", () => {
     const lines = [1, 2, 58, 59].map((number) => ({ number, text: `line ${number}` }))
     const text = renderReport(report({ batches: [{ id: 1, status: "completed", code: { file: "a.ts", lines } }] }), "step")

@@ -123,6 +123,8 @@ export const TOOLS = {
 
 Pipelined: the call queues the batch and returns once the PREVIOUS batch has finished playing, with that batch's report. So plan the next batch while this one plays. The first call returns immediately.
 
+A batch that would fail, e.g. on an anchor that doesn't match, may be rejected at once: nothing of it is queued, and the report says which action and why. Fix it and submit the whole batch again.
+
 Read every report. It shows each finished batch's code as it now reads, with your cursor marked \`▌\`: check it's what you meant. If a batch was interrupted or failed, or the programmer said or did something, your later batches were discarded; what didn't play is listed, ready to resubmit, starting with what's left of an interrupted action. Take what happened into account and re-plan.
 
 An empty batch waits for your queued batches without waiting for the programmer.`,

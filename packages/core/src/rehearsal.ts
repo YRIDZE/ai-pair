@@ -1,0 +1,101 @@
+// Playing a batch in memory before queuing it, so an action that would fail (an anchor that doesn't
+// match, say) is reported at once, instead of when the batch plays, minutes later. It's the same
+// player as real playback, on a stage that plays in a copy of the editor, instantly and silently.
+
+import type { Action, BatchResult } from "@ai-pair/protocol"
+import type { Config } from "./controller"
+import { Player, type Scene } from "./player"
+import type { CommandOutcome, EditorPort, PanelPort } from "./ports"
+import { instant } from "./timeline"
+
+/** What playing batches leaves behind: the scene, and the text of each file they edited. */
+export type Rehearsal = { scene: Scene; texts: Map<string, string> }
+
+/**
+ * Plays `actions` in memory, starting from `from`. Commands don't run, and succeed. Returns the
+ * batch's result, and what it leaves behind, for rehearsing the batch after it.
+ */
+export async function rehearse(
+  editor: EditorPort,
+  config: Config,
+  from: Rehearsal,
+  actions: Action[],
+): Promise<{ result: BatchResult; after: Rehearsal }> {
+  const scene: Scene = {
+    ...from.scene,
+    cursor: from.scene.cursor && { ...from.scene.cursor },
+    selection: from.scene.selection && { ...from.scene.selection },
+    point: from.scene.point && { ...from.scene.point },
+  }
+  const memory = new MemoryEditor(editor, new Map(from.texts))
+  const player = new Player(scene, {
+    editor: memory,
+    panel: silent,
+    pacing: instant,
+    config: () => config,
+    speed: () => 1,
+    render: () => {},
+    confirm: () => Promise.resolve(true),
+  })
+  const { result } = await player.play(0, actions)
+  return { result, after: { scene, texts: memory.texts } }
+}
+
+const silent: PanelPort = { post: () => {} }
+
+/** A copy of the editor: files it has edited are its own, the rest are read from the real one. */
+class MemoryEditor implements EditorPort {
+  constructor(
+    private readonly real: EditorPort,
+    readonly texts: Map<string, string>,
+  ) {}
+
+  resolvePath(file: string): string {
+    return this.real.resolvePath(file)
+  }
+
+  displayPath(file: string): string {
+    return this.real.displayPath(file)
+  }
+
+  async getText(file: string): Promise<string> {
+    return this.texts.get(file) ?? (await this.real.getText(file))
+  }
+
+  async eol(file: string): Promise<string> {
+    try {
+      return await this.real.eol(file)
+    } catch {
+      // Only created in memory.
+      return "\n"
+    }
+  }
+
+  async isDirty(): Promise<boolean> {
+    return false
+  }
+
+  async show(file: string): Promise<void> {
+    if (this.texts.has(file)) return
+    try {
+      await this.real.getText(file)
+    } catch {
+      // Showing a file creates it.
+      this.texts.set(file, "")
+    }
+  }
+
+  async edit(file: string, offset: number, deleteLength: number, text: string): Promise<void> {
+    const old = await this.getText(file)
+    this.texts.set(file, old.slice(0, offset) + text + old.slice(offset + deleteLength))
+  }
+
+  async save(): Promise<void> {}
+  renderCursor(): void {}
+  renderPoint(): void {}
+  reveal(): void {}
+
+  async runCommand(): Promise<CommandOutcome> {
+    return { exitCode: 0, output: "" }
+  }
+}

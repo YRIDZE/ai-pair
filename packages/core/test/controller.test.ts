@@ -185,15 +185,14 @@ describe("editing", () => {
     expect(editor.text("a.ts")).toBe('import { type Builder, type Context } from "./x"\nimport { a } from "./a"\n')
   })
 
-  it("fails a move that gives no single place to go", async () => {
+  it("rejects a move that gives no single place to go", async () => {
     const { controller } = setup({ "a.ts": "x\n" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts" } }, { move: { before: "x" } }])
-    const report = await until(controller.step([]))
-    expect(report.batches[0]).toMatchObject({
-      status: "failed",
+    const report = await controller.step([{ move: { file: "a.ts" } }, { move: { before: "x" } }])
+    expect(report.rejected).toMatchObject({
+      index: 2,
+      action: { move: { before: "x" } },
       error: { kind: "invalid_action", message: expect.stringContaining("both `before` and `after`") },
-      unplayed: [{ move: { before: "x" } }],
     })
   })
 
@@ -215,17 +214,35 @@ describe("editing", () => {
     expect(editor.saved).toEqual([editor.resolvePath("new.ts")])
   })
 
-  it("fails a batch on an ambiguous anchor, listing candidates, and discards the next batch", async () => {
-    const { controller } = setup({ "a.ts": "x\nx\n" })
+  it("rejects an action that combines two, instead of playing only one of them", async () => {
+    const { editor, controller } = setup({ "a.ts": "x\n" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts" } }, { move: { before: "x", after: "" } }])
-    const report = await until(controller.step([{ type: ["y", ""] }]))
-    expect(report.batches).toEqual([
-      {
-        id: 1,
-        status: "failed",
-        code: { file: "a.ts", lines: [{ number: 1, text: "▌x" }] },
-        unplayed: [{ move: { before: "x", after: "" } }],
+    const report = await controller.step([{ move: { file: "a.ts", to: "file_end" }, type: ["y", ""] } as Action])
+    expect(report.rejected).toMatchObject({
+      index: 1,
+      error: { kind: "invalid_action", message: expect.stringContaining("`move` and `type`") },
+    })
+    expect(editor.text("a.ts")).toBe("x\n")
+  })
+})
+
+describe("rehearsal", () => {
+  it("rejects a batch that would fail at once, with the code as it would read, playing nothing of it", async () => {
+    const { editor, panel, controller } = setup({ "a.ts": "x\nx\n" })
+    await controller.start()
+    const report = await controller.step([
+      { say: "Here." },
+      { move: { file: "a.ts", to: "file_end" } },
+      { type: ["y", ""] },
+      { move: { before: "x", after: "" } },
+    ])
+    expect(report).toEqual({
+      batches: [],
+      events: [],
+      turn: "agent",
+      rejected: {
+        index: 4,
+        action: { move: { before: "x", after: "" } },
         error: {
           kind: "anchor_ambiguous",
           message: expect.any(String),
@@ -234,21 +251,36 @@ describe("editing", () => {
             { line: 2, context: "x" },
           ],
         },
+        code: { file: "a.ts", lines: [{ number: 3, text: "y▌" }] },
       },
-      { id: 2, status: "discarded", unplayed: [{ type: ["y", ""] }] },
-    ])
+    })
+    await advance(5000)
+    expect(editor.text("a.ts")).toBe("x\nx\n")
+    expect(editor.edits).toEqual([])
+    expect(panel.says()).toEqual([])
   })
 
-  it("fails an action that combines two, instead of playing only one of them", async () => {
-    const { editor, controller } = setup({ "a.ts": "x\n" })
+  it("rehearses from where the queued batches leave off, and leaves them playing when it rejects", async () => {
+    const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", to: "file_end" }, type: ["y", ""] } as Action])
-    const report = await until(controller.step([]))
-    expect(report.batches[0]).toMatchObject({
-      status: "failed",
-      error: { kind: "invalid_action", message: expect.stringContaining("`move` and `type`") },
-    })
-    expect(editor.text("a.ts")).toBe("x\n")
+    await controller.step([{ move: { file: "a.ts" } }, { type: ["let a = 1", ""] }])
+
+    // Anchored on text the playing batch hasn't typed yet.
+    const secondCall = controller.step([{ select: { text: "1" } }, { type: ["2", ""] }])
+    const second = track(secondCall)
+    await advance(10)
+    expect(second.done).toBe(false)
+    expect(editor.text("a.ts")).toBe("")
+    const report = await until(secondCall)
+    expect(report.batches).toMatchObject([{ id: 1, status: "completed" }])
+
+    // Still queued behind the second: this one's anchor would fail after the second batch.
+    const rejected = await controller.step([{ select: { text: "= 1" } }])
+    expect(rejected.rejected).toMatchObject({ index: 1, error: { kind: "anchor_not_found" } })
+
+    const last = await until(controller.step([]))
+    expect(last.batches).toMatchObject([{ id: 2, status: "completed" }])
+    expect(editor.text("a.ts")).toBe("let a = 2")
   })
 })
 
@@ -479,9 +511,8 @@ describe("turns", () => {
     expect(taken.turn).toBe("user")
     expect(taken.events).toEqual([{ kind: "turn", to: "user" }])
 
-    await controller.step([{ type: ["x", ""] }])
-    const refused = await until(controller.listen())
-    expect(refused.batches[0]).toMatchObject({ status: "failed", error: { kind: "not_your_turn" } })
+    const refused = await controller.step([{ type: ["x", ""] }])
+    expect(refused.rejected).toMatchObject({ error: { kind: "not_your_turn" } })
 
     await controller.step([{ point: { text: "<=" } }, { say: "Careful, this goes one past the end." }])
     await advance(3000)
@@ -771,9 +802,8 @@ describe("run", () => {
     await controller.start()
     controller.takeTurn()
     await until(controller.listen())
-    await controller.step([{ run: "npm test" }])
-    const report = await until(controller.listen())
-    expect(report.batches[0]).toMatchObject({ status: "failed", error: { kind: "not_your_turn" } })
+    const report = await controller.step([{ run: "npm test" }])
+    expect(report.rejected).toMatchObject({ error: { kind: "not_your_turn" } })
     expect(editor.commands).toEqual([])
   })
 })
