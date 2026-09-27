@@ -18,10 +18,15 @@ type FromPanel =
   /** A file named in a message: a path, or just its name. */
   | { type: "openFile"; file: string }
   | { type: "openUrl"; url: string }
+  /** A command the intro offers, like Set Up Agent. */
+  | { type: "command"; command: string }
   | { type: "speed"; value: number }
   | { type: "runDecision"; id: number; run: boolean; remember?: boolean }
 
 const MAX_LOG = 400
+
+/** The commands the panel may run: the ones its intro links to. */
+const PANEL_COMMANDS: ReadonlySet<string> = new Set(["aiPair.playDemo", "aiPair.setUpAgent"])
 
 export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
   static readonly viewId = "aiPair.narration"
@@ -125,6 +130,9 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
       }
       case "openFile":
         void this.openByName(m.file)
+        return
+      case "command":
+        if (PANEL_COMMANDS.has(m.command)) void vscode.commands.executeCommand(m.command)
         return
       case "openUrl":
         if (/^https?:\/\//.test(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url))

@@ -40,7 +40,8 @@ highly visible and nothing in the panel may move unexpectedly.
 
 Layout, top to bottom:
 
-1. **The card**, holding everything about now:
+1. **The band**, a full-width area in a lighter background, holding everything
+   about now:
    - **Its header**: the agent's state (a colored dot and a few words: *Agent
      is typing*, *Read this*, *Needs you*, *Your turn · navigating*), and the
      controls, compact and quiet: Pause/Resume, Interrupt, My turn / Hand
@@ -49,21 +50,21 @@ Layout, top to bottom:
    - **The current message**, in large text (≈1.45× the editor font,
      *tunable*), high contrast. Its **top edge is fixed**, right under the
      header; its height grows downward with the message length. A new message
-     briefly flashes the card, in sync with the cursor's read state. The code
+     briefly flashes the band, in sync with the cursor's read state. The code
      the agent pointed at before it is linked under it.
    - **The reading-pause bar** under the message. It fills during the reading
      pause, so the pause feels intentional, and is hidden otherwise.
    - **A command to allow**, when the agent plays a `run` (see Commands).
-   - **The reply box**, joined to the card's bottom. It's where the eye goes
-     after reading, which is when the programmer replies. The card has a
+   - **The reply box**, under the message. It's where the eye goes after
+     reading, which is when the programmer replies. The band has a
      minimum height, so the reply box moves only for a long message.
-2. **History**, below the card, newest first. The agent's messages in muted
+2. **History**, below the band, newest first. The agent's messages in muted
    text, under an *Agent* label for each run of them; the programmer's
    replies as bubbles on the right; commands as terminal rows with their
    outcome (✓ exit 0, ✕ exit 1, skipped, still running); turn changes,
    interrupts and session starts and ends as dividers.
 
-Without a session, the card says so and how to start one, and after a
+Without a session, the band says so and how to start one, and after a
 session, how it ended, with the agent's summary; the controls and the reply
 box are hidden. In every message, code spans that name a file (`game.ts`,
 `src/server.ts`) open it, found by name if it isn't a path from the
@@ -84,7 +85,7 @@ Behavior:
   along. × leaves it out; the next selection brings the line back. The
   selection is sent once. *Ask the Agent About the Selection* in the editor's
   context menu focuses the reply box.
-- **Commands.** When the agent plays a `run`, the card shows the command under
+- **Commands.** When the agent plays a `run`, the band shows the command under
   the current message, with **Run**, **Allow for session** (the same command
   won't ask again until the session ends) and **Skip** (unless
   `aiPair.confirmCommands` is off), with the cursor in its read state and the
@@ -96,7 +97,7 @@ Behavior:
   End); Enter still does.
 - The command *AI Pair: Reply to the Agent* focuses the reply box from the
   editor; bind it to a key of your choice.
-- During the programmer's turn the card's header says *Your turn ·
+- During the programmer's turn the band's header says *Your turn ·
   navigating*; the agent's comments appear as the current message as usual.
 
 ## Playback

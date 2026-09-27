@@ -1,6 +1,6 @@
-// The narration panel's page. Layout, top to bottom: the card, whose header holds the status and the
-// controls, then the current message (top edge fixed, grows downward) with the reading-pause bar,
-// then the reply box at the card's bottom; below the card, the history, newest first.
+// The narration panel's page. Layout, top to bottom: the band, a full-width area whose header holds
+// the status and the controls, then the current message (top edge fixed, grows downward) with the
+// reading-pause bar, then the reply box; below the band, the history, newest first.
 
 import { randomBytes } from "node:crypto"
 
@@ -73,14 +73,12 @@ export function panelHtml(cspSource: string): string {
   .i { width: 14px; height: 14px; flex: none; }
   .i.accent { color: var(--accent); }
 
-  #card {
-    flex: none; margin: 12px 12px 0; border-radius: 10px;
-    background: var(--surface); border: 1px solid var(--border);
-  }
-  #card.flash { animation: flash 1.4s ease-out; }
-  @keyframes flash { from { box-shadow: 0 0 0 3px var(--read-tint); } to { box-shadow: 0 0 0 3px transparent; } }
-  #main { padding: 10px 12px 14px 14px; box-sizing: border-box; }
-  body.active #main { min-height: 150px; }
+  #band { flex: none; padding: 10px 14px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  body.active #band { padding-bottom: 12px; }
+  #band.flash { animation: flash 1.4s ease-out; }
+  @keyframes flash { from { background-color: color-mix(in srgb, var(--read) 12%, var(--surface)); } to { background-color: var(--surface); } }
+  /* Keeps the reply box still for short messages. */
+  body.active #main { min-height: 142px; box-sizing: border-box; }
 
   #head { display: flex; align-items: center; gap: 4px; height: 28px; }
   #status { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; font-size: 12px; }
@@ -134,11 +132,11 @@ export function panelHtml(cspSource: string): string {
   #idle-summary:empty { display: none; }
   #idle-text { margin-top: 4px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 
-  #composer { display: none; padding: 8px; border-top: 1px solid var(--border); border-radius: 0 0 9px 9px; background: var(--soft); }
+  #composer { display: none; margin-top: 12px; }
   body.active #composer { display: block; }
   #compose-row {
     display: flex; align-items: flex-end; gap: 4px; padding: 3px 3px 3px 10px; border-radius: 8px;
-    background: var(--surface); border: 1px solid var(--vscode-input-border, var(--border));
+    background: var(--vscode-sideBar-background, var(--vscode-input-background)); border: 1px solid var(--vscode-input-border, var(--border));
   }
   #compose-row:focus-within { border-color: var(--vscode-focusBorder); }
   #reply {
@@ -153,7 +151,7 @@ export function panelHtml(cspSource: string): string {
   #attach button { height: 18px; min-width: 18px; padding: 0 4px; font-size: 12px; }
 
   #history {
-    flex: 1; overflow-y: auto; padding: 18px 14px 18px; display: flex; flex-direction: column; gap: 10px;
+    flex: 1; overflow-y: auto; padding: 16px 14px 18px; display: flex; flex-direction: column; gap: 10px;
     font-size: 13px; color: var(--muted);
   }
   .entry { overflow-wrap: anywhere; line-height: 1.5; }
@@ -186,7 +184,7 @@ export function panelHtml(cspSource: string): string {
 </head>
 <body>
 <div id="app">
-  <section id="card">
+  <section id="band">
     <div id="main">
       <div id="head">
         <div id="status"><span id="dot" class="dot off"></span><span id="status-text">No session</span></div>
@@ -218,7 +216,7 @@ export function panelHtml(cspSource: string): string {
       <div id="idle">
         <div id="idle-title">No active session</div>
         <div id="idle-summary"></div>
-        <div id="idle-text">Ask your agent to pair with you, or run <em>AI Pair: Play Demo Session</em>. First time? Run <em>AI Pair: Set Up Agent</em>.</div>
+        <div id="idle-text">Ask your agent to pair with you, or run <a class="command" data-command="aiPair.playDemo">AI Pair: Play Demo Session</a>. First time? Run <a class="command" data-command="aiPair.setUpAgent">AI Pair: Set Up Agent</a>.</div>
       </div>
     </div>
     <div id="composer">
@@ -235,7 +233,7 @@ export function panelHtml(cspSource: string): string {
   const vscode = acquireVsCodeApi();
   const $ = (id) => document.getElementById(id);
   const ui = {
-    card: $("card"), dot: $("dot"), status: $("status-text"), pause: $("pause"), interrupt: $("interrupt"),
+    band: $("band"), dot: $("dot"), status: $("status-text"), pause: $("pause"), interrupt: $("interrupt"),
     turn: $("turn"), turnLabel: $("turn-label"), speed: $("speed"), speedMenu: $("speed-menu"), end: $("end"),
     now: $("now-text"), ref: $("now-ref"), reading: $("reading"), fill: $("reading-fill"),
     idleTitle: $("idle-title"), idleSummary: $("idle-summary"), idleText: $("idle-text"),
@@ -259,7 +257,6 @@ export function panelHtml(cspSource: string): string {
     FILE.test(code) && !code.startsWith(".") ? '<a class="file" data-file="' + code + '">' + code + "</a>" : "<code>" + code + "</code>";
   const rich = (s) => esc(s).split(/(\`[^\`]+\`)/).map((part, i) =>
     i % 2 === 1 ? codeSpan(part.slice(1, -1)) : part.replace(URL, (u) => '<a class="url" data-url="' + u + '">' + u + "</a>")).join("");
-  const DEFAULT_IDLE = ui.idleText.innerHTML;
 
   function add(el) {
     ui.history.prepend(el);
@@ -326,9 +323,9 @@ export function panelHtml(cspSource: string): string {
 
   function flash() {
     if (replaying) return;
-    ui.card.classList.remove("flash");
-    void ui.card.offsetWidth;
-    ui.card.classList.add("flash");
+    ui.band.classList.remove("flash");
+    void ui.band.offsetWidth;
+    ui.band.classList.add("flash");
   }
 
   function setNow(text) {
@@ -431,7 +428,7 @@ export function panelHtml(cspSource: string): string {
           addDivider(why);
           ui.idleTitle.textContent = e.reason === "disconnected" ? "The agent disconnected" : "Session ended";
           ui.idleSummary.innerHTML = e.summary ? rich(e.summary) : "";
-          ui.idleText.innerHTML = "Ask your agent to pair again, or run <em>AI Pair: Play Demo Session</em>.";
+          ui.idleText.textContent = "Ask your agent to pair again.";
           setActive(false);
         }
         return;
@@ -567,11 +564,12 @@ export function panelHtml(cspSource: string): string {
     vscode.postMessage({ type: paused ? "resume" : "pause" });
   });
 
-  // File names in messages open the file, and URLs open in the browser.
+  // File names in messages open the file, URLs open in the browser, and the intro's commands run.
   document.addEventListener("click", (e) => {
-    const a = e.target.closest && e.target.closest("a.file, a.url");
+    const a = e.target.closest && e.target.closest("a.file, a.url, a.command");
     if (a?.dataset.file) vscode.postMessage({ type: "openFile", file: a.dataset.file });
     if (a?.dataset.url) vscode.postMessage({ type: "openUrl", url: a.dataset.url });
+    if (a?.dataset.command) vscode.postMessage({ type: "command", command: a.dataset.command });
   });
 
   vscode.postMessage({ type: "ready" });
