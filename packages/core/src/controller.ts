@@ -195,7 +195,7 @@ export class Controller {
     const s = this.requireSession()
     const path = this.resolvePath(s, file)
     return (async () => {
-      const { lines, finalNewline } = fileLines(await this.editor.getText(path))
+      const { lines, finalNewline } = fileLines(this.planned(s, path) ?? (await this.editor.getText(path)))
       const from = Math.max(1, fromLine ?? 1)
       const to = Math.min(lines.length, toLine ?? lines.length)
       const content: FileContent = {
@@ -206,6 +206,15 @@ export class Controller {
       if (to === lines.length) content.end = { final_newline: finalNewline }
       return content
     })()
+  }
+
+  /**
+   * The text of a file as it will be once the queued batches have played, if they edit it: they
+   * were played in memory when queued. Not after an interruption, which discards what they'd do.
+   */
+  private planned(s: Session, path: string): string | undefined {
+    if (s.stale) return undefined
+    return s.queue.at(-1)?.after?.texts.get(path)
   }
 
   /**

@@ -762,6 +762,23 @@ describe("sessions", () => {
     expect(await controller.read("c.ts")).toEqual({ file: "c.ts", dirty: false, lines: [], end: { final_newline: true } })
   })
 
+  it("reads a file as the queued batches will leave it, while they still play, but not after an interruption", async () => {
+    const { editor, controller } = setup({ "a.ts": "a\n", "b.ts": "b\n" })
+    await controller.start()
+    const lines = async (file: string) => (await controller.read(file)).lines.map((l) => l.text)
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "end" } }, { type: ["\nbc", ""] }])
+    const queued = controller.step([{ type: ["\nd", ""] }])
+    await advance(10)
+    expect(editor.text("a.ts")).toBe("a\n")
+    expect(await lines("a.ts")).toEqual(["a", "bc", "d"])
+    // Files the batches don't edit read as they are.
+    expect(await lines("b.ts")).toEqual(["b"])
+    editor.userEdit("a.ts", 0, 0, "!")
+    expect((await controller.read("a.ts")).lines.map((l) => l.text).join("\n") + "\n").toBe(editor.text("a.ts"))
+    await until(queued)
+    expect((await controller.read("a.ts")).lines.map((l) => l.text).join("\n") + "\n").toBe(editor.text("a.ts"))
+  })
+
   it("resolves paths under the agent's root into the editor's canonical form", async () => {
     const { editor, controller } = setup()
     editor.resolvePath = (file) => nodePath.resolve("/project", file).toLowerCase()

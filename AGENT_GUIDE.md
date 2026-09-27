@@ -249,11 +249,14 @@ type_fast [";", ""]
   already shows it, and copy from it exactly. Don't count braces in your
   head: look. `read` shows the file as it is in the editor, including the
   programmer's unsaved changes, which your own file tools don't see.
+- **`read` shows the file as your batches will leave it**, even while they
+  are still playing or queued: what they'll type is already in it. So its
+  line numbers are the ones your next batch starts from, and you can `read`
+  right after a `step` returns, without waiting for anything.
 - **Every move names its line, exactly**: the line your cursor lands on, as
-  your latest `read` or report shows it, plus the lines your batches have
-  typed since. Count the newlines you typed; `read` shows only what has
-  played so far, not what your queued batches are still to type. Then give
-  a spot on that line, or `to: "end"`. A spot is checked: if it isn't on
+  your latest `read` shows it, plus the lines the batch itself types before
+  the move: count the newlines you type. Then give a spot on that line, or
+  `to: "end"`. A spot is checked: if it isn't on
   the line, the batch is rejected at once, with what the line reads and
   where the spot is, so you can fix it and submit again. `to: "end"` can't
   be checked, so when you're unsure of the line, use a spot.

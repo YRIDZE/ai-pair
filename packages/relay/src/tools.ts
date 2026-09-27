@@ -148,7 +148,7 @@ An empty batch waits for your queued batches without waiting for the programmer.
   },
   read: {
     description:
-      "Read a file as it is in the programmer's editor, including unsaved changes and everything you've typed so far. Read the part of a file you're about to work in before you move there, and copy anchors and line numbers from it: don't guess them. Prefer this over your own file tools during the session. Lines are numbered from 1; it says where the file ends, and whether a newline ends its last line.",
+      "Read a file as it is in the programmer's editor, including unsaved changes, and as your batches will leave it: what they'll type is already in it, even while they're still playing or queued, so its line numbers are the ones your next batch starts from. Read the part of a file you're about to work in before you move there, and copy anchors and line numbers from it: don't guess them. Prefer this over your own file tools during the session. Lines are numbered from 1; it says where the file ends, and whether a newline ends its last line.",
     inputSchema: {
       file,
       from_line: z.number().int().optional(),

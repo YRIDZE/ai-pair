@@ -192,9 +192,13 @@ Returns when:
 
 ### `read(file: string, from_line?: number, to_line?: number) -> text`
 
-Returns the contents of a file **as it is in the editor buffer**, including
-unsaved changes and everything played so far (but not text still queued for
-playback). Falls back to disk for files that aren't open. The result is the
+Returns the contents of a file **as the agent's batches will leave it**: the
+editor buffer, including unsaved changes, with what the playing and queued
+batches will still type already in it (as they played in memory when they
+were queued). So its line numbers are the ones the next batch starts from.
+After an interruption, until it's reported, it's just the buffer: the
+batches queued behind the interruption won't play. Falls back to disk for
+files that aren't open. The result is the
 file's name, whether it has unsaved changes, and its lines, numbered. Like a
 report's code, it says where the lines reach the end of the file, and whether
 a newline ends its last line. Does not block and does not deliver events.
