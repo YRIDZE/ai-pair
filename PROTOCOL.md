@@ -524,8 +524,9 @@ type Excerpt = {              // code the programmer had selected
 During the agent's turn, **every event interrupts**: it stops playback and
 triggers the no-stale-plans rule. This includes any edit by the programmer,
 anywhere. The one exception is a change the programmer didn't make (an edit
-`by: "other"`): it's reported, without interrupting. (A finer rule, such as only edits near the agent cursor, may come
-later.)
+`by: "other"`) to a file no playing or queued batch edits: it's reported,
+without interrupting. (A finer rule for the programmer's edits, such as only
+edits near the agent cursor, may come later.)
 
 - `message`: the programmer sent a message from the narration panel. If they
   had code selected in the editor, it comes along as `selection`, unless they
@@ -536,7 +537,10 @@ later.)
   report. `by` says whether the programmer made them, or something else did: a
   tool or a command writing to disk (including the agent's own), or a
   formatter when the file is saved. A diff with any edit by the programmer is
-  theirs. Changes by others don't interrupt, and don't make `listen` return.
+  theirs. A change by others to a file the playing or queued batches edit
+  interrupts, since they were planned against the text before it: a
+  formatter when a batch saves, say. Changes by others to any other file
+  don't interrupt, and don't make `listen` return.
 - `end`: the programmer ended the session. Playback stops and the session is
   over: this is its final report, and further calls fail with `no_session`.
 

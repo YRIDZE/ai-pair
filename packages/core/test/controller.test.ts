@@ -593,33 +593,66 @@ describe("interruptions", () => {
     expect(report.cursor).toEqual({ file: "a.ts", lines: [{ number: 1, text: "XXhello▌" }], end: { final_newline: true } })
   })
 
-  it("reports changes the programmer didn't make without interrupting, or waking `listen`", async () => {
+  it("reports changes the programmer didn't make to other files without interrupting, or waking `listen`", async () => {
     const { editor, controller } = setup({ "a.ts": "hello\n", "package.json": "{}\n" })
     await controller.start()
     await controller.step([{ move: { file: "a.ts", line: 1, to: "end" } }, { type: ["abc", ""] }])
     await advance(200)
-    editor.otherEdit("a.ts", 0, 0, "// formatted\n")
     editor.otherEdit("package.json", 1, 0, '"x": 1')
 
     const report = await until(controller.step([{ type: ["d", ""] }]))
     expect(report.batches).toMatchObject([{ id: 1, status: "completed" }])
-    expect(report.events).toEqual([
-      { kind: "edit", file: "a.ts", diff: expect.stringContaining("+// formatted"), by: "other" },
-      { kind: "edit", file: "package.json", diff: expect.stringContaining('+{"x": 1}'), by: "other" },
-    ])
+    expect(report.events).toEqual([{ kind: "edit", file: "package.json", diff: expect.stringContaining('+{"x": 1}'), by: "other" }])
     await until(controller.step([]))
-    expect(editor.text("a.ts")).toBe("// formatted\nhelloabcd\n")
+    expect(editor.text("a.ts")).toBe("helloabcd\n")
 
     const listening = track(controller.listen())
-    editor.otherEdit("package.json", 0, 0, " ")
+    editor.otherEdit("a.ts", 0, 0, "// formatted\n")
     await advance(5000)
     expect(listening.done).toBe(false)
     editor.userEdit("a.ts", 0, 0, "!")
     await advance(10)
-    expect(listening.value!.events).toMatchObject([
-      { kind: "edit", file: "package.json", by: "other" },
-      { kind: "edit", file: "a.ts", by: "programmer" },
+    expect(listening.value!.events).toMatchObject([{ kind: "edit", file: "a.ts", by: "programmer" }])
+  })
+
+  it("interrupts on a change the programmer didn't make to a file the batches edit, planned against the text before it", async () => {
+    const { editor, controller } = setup({ "a.ts": "hello\n" })
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "end" } }, { type: ["abc", ""] }])
+    const queued = track(controller.step([{ type: ["d", ""] }]))
+    await advance(200)
+    // A formatter, say.
+    editor.otherEdit("a.ts", 0, 0, "// formatted\n")
+    await advance(10)
+    expect(queued.done).toBe(true)
+    expect(queued.value!.events).toEqual([{ kind: "edit", file: "a.ts", diff: expect.stringContaining("+// formatted"), by: "other" }])
+    expect(queued.value!.batches).toMatchObject([
+      { id: 1, status: "interrupted" },
+      { id: 2, status: "discarded", unplayed: [{ type: ["d", ""] }] },
     ])
+    // As far as the interrupted batch got, and nothing of the discarded one.
+    expect(editor.text("a.ts")).toMatch(/^\/\/ formatted\nhello(a|ab|abc)?\n$/)
+  })
+
+  it("discards the batch queued behind one whose save a formatter changed, which completes", async () => {
+    const { editor, controller } = setup({ "a.ts": "hello\n" })
+    const save = editor.save.bind(editor)
+    let formatted = false
+    editor.save = async (file) => {
+      await save(file)
+      if (formatted) return
+      formatted = true
+      editor.otherEdit("a.ts", 0, 0, "// formatted\n")
+    }
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "end" } }, { type: ["abc", ""] }])
+    const report = await until(controller.step([{ type: ["d", ""] }]))
+    expect(report.batches).toMatchObject([
+      { id: 1, status: "completed" },
+      { id: 2, status: "discarded" },
+    ])
+    expect(report.events).toMatchObject([{ kind: "edit", file: "a.ts", by: "other" }])
+    expect(editor.text("a.ts")).toBe("// formatted\nhelloabc\n")
   })
 
   it("reports a file's edits as the programmer's if any of them was", async () => {

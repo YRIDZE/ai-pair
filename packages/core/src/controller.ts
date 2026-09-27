@@ -46,11 +46,12 @@ type Batch = {
 /** Like `Event`, but edits usually get their diff when the report is taken. */
 type PendingEvent = Exclude<Event, { kind: "edit" }> | EditEvent
 
-type EditEvent = { kind: "edit"; file: string; by: "programmer" | "other"; diff?: string }
+/** `interrupted`: a change the programmer didn't make, to a file the playing or queued batches edit. */
+type EditEvent = { kind: "edit"; file: string; by: "programmer" | "other"; diff?: string; interrupted?: true }
 
-/** Everything interrupts, except changes the programmer didn't make. */
+/** Everything interrupts, except changes the programmer didn't make to files no batch is going to edit. */
 function interrupting(e: PendingEvent): boolean {
-  return e.kind !== "edit" || e.by === "programmer"
+  return e.kind !== "edit" || e.by === "programmer" || e.interrupted === true
 }
 
 type Session = {
@@ -268,11 +269,21 @@ export class Controller {
     this.update()
   }
 
-  /** A change the programmer didn't make: by a tool, a formatter, or on disk. Reported, without interrupting. */
+  /**
+   * A change the programmer didn't make: by a tool, a formatter, or on disk. It interrupts if the
+   * playing or queued batches edit the file, since they were planned against the text before it.
+   * Otherwise it's just reported.
+   */
   otherEdit(file: string, before: string, after: string, changes: Change[]): void {
     const s = this.activeSession()
     if (!s) return
+    const planned = s.queue.at(-1)?.after?.texts.has(file) ?? false
     this.recordEdit(s, file, before, after, changes, "other")
+    if (planned) {
+      const e = s.events.find((e): e is EditEvent => e.kind === "edit" && e.file === file && e.diff === undefined)
+      if (e) e.interrupted = true
+      this.interrupt(s)
+    }
     this.update()
   }
 

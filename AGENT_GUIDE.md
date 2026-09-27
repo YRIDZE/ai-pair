@@ -102,7 +102,11 @@ shapes the code must be said before or as the code appears.
   a command, don't run it in the background instead.
 - **Native file edits** are for mechanical changes only: generated files,
   lockfiles, bulk renames. Announce them in one `say`. Anything the programmer
-  should follow goes through the pair tools.
+  should follow goes through the pair tools. Never natively edit a file your
+  batches are editing: that interrupts them.
+- **Match the project's formatting** as you type. Your files are saved after
+  each batch, and if a formatter changes one of them on save, your queued
+  batches are discarded, since they were planned against the text before it.
 
 ## Deciding and asking
 
