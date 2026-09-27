@@ -70,21 +70,20 @@ describe("anchors", () => {
   })
 
   it("resolves a spot between two texts that occur together, on its line only", () => {
-    expect(resolveSpot(text, { before: "b = ", after: "1", line: 2 })).toEqual({ ok: true, range: { start: 10, end: 10 } })
-    expect(resolveSpot(text, { before: "", after: "c", line: 3 })).toEqual({ ok: true, range: { start: 12, end: 12 } })
-    expect(resolveSpot(text, { before: " = ", after: "1", line: 2 })).toEqual({ ok: true, range: { start: 10, end: 10 } })
-    expect(resolveSpot(text, { before: "b", after: " = ", line: 3 })).toMatchObject({
+    expect(resolveSpot(text, { at: "b = ▌1", line: 2 })).toEqual({ ok: true, range: { start: 10, end: 10 } })
+    expect(resolveSpot(text, { at: "▌c", line: 3 })).toEqual({ ok: true, range: { start: 12, end: 12 } })
+    expect(resolveSpot(text, { at: " = ▌1", line: 2 })).toEqual({ ok: true, range: { start: 10, end: 10 } })
+    expect(resolveSpot(text, { at: "b▌ = ", line: 3 })).toMatchObject({
       ok: false,
       kind: "anchor_not_found",
       candidates: [{ line: 2, context: "b = 1" }],
     })
     // The line is the one the spot is on, after a `before` that ends with a newline.
-    expect(resolveSpot(text, { before: "b = 1\n", after: "", line: 3 })).toEqual({ ok: true, range: { start: 12, end: 12 } })
+    expect(resolveSpot(text, { at: "b = 1\n▌", line: 3 })).toEqual({ ok: true, range: { start: 12, end: 12 } })
   })
 
-  it("ignores the cursor marker, so code can be copied from a report", () => {
+  it("ignores the cursor marker in an anchor, so code can be copied from a report", () => {
     expect(resolveAnchor(text, { text: "b =▌ 1" })).toEqual({ ok: true, range: { start: 6, end: 11 } })
-    expect(resolveSpot(text, { before: "b = ▌", after: "1", line: 2 })).toEqual({ ok: true, range: { start: 10, end: 10 } })
   })
 
   it("resolves a from/to span, to the first match of `to` after `from`", () => {

@@ -8,22 +8,21 @@ export type Anchor = {
 /** A single anchor's match, or from the start of `from` to the end of the first `to` after it. */
 export type Span = Anchor | { from: Anchor; to: { text: string } }
 
-/** The offset between `before` and `after`, which occur together, exactly, placing it on `line`. */
-export type Spot = { before: string; after: string; line: number }
+/** A spot on `line`: the text around it, `at`, with the cursor marker `▌` where the spot is. */
+export type Spot = { at: string; line: number }
 
 /**
- * Where a `move` goes: on `line`, exactly, the spot between `before` and `after`, or the end of the
- * line. Without `line`, on the cursor's line.
+ * Where a `move` goes: on `line`, exactly, a spot, or the end of the line. Without `line`, on the
+ * cursor's line.
  */
 export type MoveTarget = {
   file?: string
   /** The line the cursor lands on, from 1. Omitted: the cursor's line. */
   line?: number
-  /** A spot on the line: see `Spot`. */
-  before?: string
-  after?: string
-  /** `end`: the end of the line. */
-  to?: "end"
+  /** A spot on the line: the text around it, with `▌` where the cursor goes. See `Spot`. */
+  at?: string
+  /** `line_end`: the end of the line. */
+  to?: "line_end"
 }
 
 /** Typed as `before` then `after`, leaving the cursor between them. */
@@ -49,16 +48,28 @@ export function actionKinds(value: object): string[] {
 
 /** What's wrong with a `move`'s combination of fields, if anything. */
 export function moveProblem(m: MoveTarget): string | undefined {
+  const fields = m as Record<string, unknown>
+  if ("before" in fields || "after" in fields) {
+    return 'A spot is one text, `at`: the text around it, with ▌ where your cursor goes, e.g. `at: "import { ▌type Context"`.'
+  }
   if (m.line !== undefined && (!Number.isInteger(m.line) || m.line < 1)) {
     return "`line` is a line number, from 1, exactly as your latest `read` or report shows it. Omit it to stay on your cursor's line."
   }
-  const spot = m.before !== undefined || m.after !== undefined
-  if (spot && (m.before === undefined || m.after === undefined)) {
-    return "A spot needs both `before` and `after` (either may be empty)."
+  if (m.to !== undefined && m.to !== "line_end") return '`to` is `"line_end"`: the end of the line.'
+  if (m.at !== undefined && m.to !== undefined) return 'Give one place on the line: `at`, or `to: "line_end"`, not both.'
+  if (m.at === undefined && m.to === undefined) return 'Give the place on the line: `at`, or `to: "line_end"`.'
+  if (m.at !== undefined) return spotProblem(m.at)
+  return undefined
+}
+
+/** What's wrong with a spot's `at`, if anything: it needs exactly one cursor marker, and text around it. */
+function spotProblem(at: string): string | undefined {
+  const markers = at.split(CURSOR_MARKER).length - 1
+  if (markers === 0) return '`at` marks where your cursor goes with ▌, e.g. `at: "import { ▌type Context"`.'
+  if (markers > 1) {
+    return `\`at\` has ${markers} ▌, but marks one spot: only where your cursor goes. Text copied from a report may carry the cursor's old ▌; leave that one out.`
   }
-  if (spot && m.before === "" && m.after === "") return "`before` and `after` can't both be empty."
-  if (spot && m.to !== undefined) return "Give one place on the line: `before`/`after`, or `to: \"end\"`, not both."
-  if (!spot && m.to === undefined) return "Give the place on the line: `before`/`after`, or `to: \"end\"`."
+  if (at === CURSOR_MARKER) return "`at` needs text around ▌, to find the spot by."
   return undefined
 }
 

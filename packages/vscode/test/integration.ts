@@ -79,7 +79,7 @@ export async function run(): Promise<void> {
   fs.writeFileSync(file("other.txt"), "before\n")
   const other = await vscode.workspace.openTextDocument(file("other.txt"))
   await c.start("other edits")
-  await c.step([{ move: { file: "tool.txt", line: 1, to: "end" } }, { type_fast: ["x".repeat(200), ""] }])
+  await c.step([{ move: { file: "tool.txt", line: 1, to: "line_end" } }, { type_fast: ["x".repeat(200), ""] }])
   const queued = c.step([{ type: ["abc", ""] }])
   await sleep(1500)
   fs.writeFileSync(file("other.txt"), "after\n")
@@ -105,7 +105,7 @@ export async function run(): Promise<void> {
   // A programmer edit mid-typing interrupts, and the report shows exactly what was typed.
   const alphabet = "abcdefghijklmnopqrstuvwxyz"
   await c.start("interrupt test")
-  await c.step([{ move: { file: "scratch.ts", line: 1, to: "end" } }, { type: [alphabet, ""] }])
+  await c.step([{ move: { file: "scratch.ts", line: 1, to: "line_end" } }, { type: [alphabet, ""] }])
   const pending = c.step([{ type: ["!", ""] }])
   // Past the pauses around moving into a new file (~1 s), and into the typing.
   await sleep(1500)
@@ -155,7 +155,7 @@ export async function run(): Promise<void> {
   }
   c.setSpeed(20)
   await tool("start", { task: "relay test" })
-  await tool("step", { actions: [{ say: "Hello from the relay." }, { move: { file: "relay.txt", line: 1, to: "end" } }, { type: ["typed via the relay", ""] }] })
+  await tool("step", { actions: [{ say: "Hello from the relay." }, { move: { file: "relay.txt", line: 1, to: "line_end" } }, { type: ["typed via the relay", ""] }] })
   const last = await tool("step", { actions: [] })
   assert.match(last, /Batch \d+ completed/)
   assert.equal(await buffer("relay.txt"), "typed via the relay")

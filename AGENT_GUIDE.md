@@ -84,7 +84,7 @@ The shape is a default, not a law. Skip the crude-to-fine order (usually with
 `type_fast`) when the structure carries no meaning: config files,
 `package.json`, boilerplate, small self-contained helpers whose purpose is
 already clear. This relaxes the order of *sections*, not how you type: even in
-boilerplate, ends come first (see *Typing like a programmer*).
+boilerplate, closes come first (see *Typing like a programmer*).
 
 ## Visible and background work
 
@@ -149,39 +149,40 @@ ambiguous *and* expensive to reverse. Don't ask permission for routine steps.
 experience.** They watch every keystroke, at a human pace. Every second they
 spend looking at an unclosed brace, bracket, parenthesis, quote or block is a
 second of suffering for them: the code on screen is broken, and they can't
-tell where it will end. In a good editor, a programmer never sees that: the
-editor closes each one the moment it's opened. So you close each one the
+tell where it will be closed. In a good editor, a programmer never sees that:
+the editor closes each one the moment it's opened. So you close each one the
 moment you open it. Always: however short (`f(x)` too), in boilerplate, in
 config and markup, with `type_fast`, in every language.
 
-- **Left to right, ends first.** Type code in the order you'd write it, with
-  one exception: when you open something that has an end, type its end at
-  once, in the same `type`, then fill it in, then step past the end and go
-  on. Brackets and quotes have ends, and so do blocks, however the language
-  spells them: `{ … }`, `begin … end`, `then … fi`, `do … end`, a tag, a
-  block comment. That's what the two parts of `type` are for: `before` ends
-  where the thing opens, `after` is its end, and your cursor lands between
-  them: `["f(", ")"]`, then `["x", ""]`. Never `["f(x", ")"]`, and never
-  `["f(x)", ""]`: both show an open parenthesis while its contents are
-  typed.
-- **`after` is only the end.** What comes after the end isn't part of it: not
-  the rest of an expression, not a `;`, not the block after a condition. You
-  type it when you get there, after stepping past the end. An empty pair is
-  typed whole, like `listTodos()` or `= []`, and when `before` opens nothing,
-  `after` is `""`.
-- **Step past the end** once it's filled, with a `move` on your cursor's
-  line, without `line`: `{ to: "end" }` if the end ends the line, or a spot
-  right after it if more code follows it on the line. An end on another
-  line, like a block's, is where your batch ends: `read`, and move there in
-  the next one.
-- **`to: "end"` is the end of the line your cursor is on, nothing more.** It
-  doesn't know what you typed: it doesn't step past the end of a `type`
-  unless that end is on your cursor's line. Know where your cursor is before
-  you use it. After `[" {\n  ", "\n}"]` and the block's body, your cursor is
-  on the body's last line, and the `}` is on the line below: `to: "end"`
-  goes to the end of the body's line, still inside the block. After
-  `["f(", ")"]` and `["x", ""]`, the `)` is on your line, so `to: "end"`
-  steps past it.
+- **Left to right, closes first.** Type code in the order you'd write it,
+  with one exception: when you open something that has a close, type its
+  close at once, in the same `type`, then fill it in, then step past the
+  close and go on. Brackets and quotes have closes, and so do blocks, however
+  the language spells them: `}` for `{`, `end` for `begin` or `do`, `fi` for
+  `then`, a closing tag, `*/`. That's what the two parts of `type` are for:
+  `before` stops where the thing opens, `after` is its close, and your cursor
+  lands between them: `["f(", ")"]`, then `["x", ""]`. Never `["f(x", ")"]`,
+  and never `["f(x)", ""]`: both show an open parenthesis while its contents
+  are typed.
+- **`after` is only the close.** What comes after the close isn't part of
+  it: not the rest of an expression, not a `;`, not the block after a
+  condition. You type it when you get there, after stepping past the close.
+  An empty pair is typed whole, like `listTodos()` or `= []`, and when
+  `before` opens nothing, `after` is `""`.
+- **Step past the close** once it's filled, with a `move` on your cursor's
+  line, without `line`: `{ to: "line_end" }` if the close is the last thing
+  on the line, or a spot right after it, like `{ at: "'/todos'▌, " }`, if
+  more code follows it on the line. A close on another line, like a
+  block's, is where your batch stops: `read`, and move there in the next
+  one.
+- **`to: "line_end"` is the end of the line your cursor is on, not the
+  close you typed.** It knows nothing about your `type`s: it steps past a
+  close only if that close is on your cursor's line. Know where your cursor
+  is before you use it. After `[" {\n  ", "\n}"]` and the block's body, your
+  cursor is on the body's last line, and the `}` is on the line below:
+  `to: "line_end"` goes to the end of the body's line, still inside the
+  block. After `["f(", ")"]` and `["x", ""]`, the `)` is on your line, so
+  `to: "line_end"` steps past it.
 - **Start new lines at the end of the line above**, `["\n  …", ""]`, never at
   the start of a line with code on it: that code would slide right with every
   character you type. At the very top of a file, make an empty line first:
@@ -204,31 +205,32 @@ the block. The moves stay on your cursor's line, so they need no `line`:
 ```
 type   ["\n  if (", ")"]                 if (▌)
 type   ["x < 0", ""]                     if (x < 0▌)
-move   to: "end"                         if (x < 0)▌
+move   to: "line_end"                    if (x < 0)▌
 type   [" {\n    ", "\n  }"]             the block, your cursor on its first line
 type   ["return 0;", ""]
 ```
 
-The same in Ruby: `["\n  if x < 0\n    ", "\n  end"]`, since nothing but the
-block has an end. In Python a block has no end at all, so `after` is `""`.
+The same in Ruby: `["\n  if x < 0\n    ", "\n  end"]`, where the block's close
+is `end`, and nothing else has one. In Python a block has no close at all, so
+`after` is `""`.
 
 An expression that goes on after a parenthesis:
 
 ```
 type   ["\n  const total = (", ")"]      const total = (▌)
 type   ["x + y", ""]                     const total = (x + y▌)
-move   to: "end"                         const total = (x + y)▌
+move   to: "line_end"                    const total = (x + y)▌
 type   [" * SCALE;", ""]
 ```
 
 A function after another, separated by a blank line, where your `read` showed
-the function above ending on line 24:
+the `}` of the function above on line 24:
 
 ```
-move   line: 24, before: "}", after: "\n"   the end of the function above
+move   line: 24, at: "}▌"                right after the function above
 type   ["\n\nfunction update(", ")"]      a blank line, the new line, its parameters' parentheses
 type   ["dt", ""]
-move   to: "end"                         past ")"
+move   to: "line_end"                    past ")"
 type   [" {\n  ", "\n}"]                 the body
 type   ["state.time += dt;", ""]
 ```
@@ -236,13 +238,13 @@ type   ["state.time += dt;", ""]
 An import below another, with a string, and the `;` after it:
 
 ```
-move   line: 1, before: 'import express from "express";', after: "\n"
+move   line: 1, at: 'import express from "express";▌'
 type_fast ["\nimport { ", " }"]
 type_fast ["createTodo", ""]
-move   to: "end"
+move   to: "line_end"
 type_fast [' from "', '"']
 type_fast ["./todos", ""]
-move   to: "end"
+move   to: "line_end"
 type_fast [";", ""]
 ```
 
@@ -282,17 +284,22 @@ type_fast [";", ""]
   you can `read` right after a `step` returns, and its line numbers are the
   ones your next batch starts from. It also shows the programmer's unsaved
   changes, which your own file tools don't see.
-- **Moves on your cursor's line need no `line`**: `{ to: "end" }`, or a spot
-  on it. That's how you step past an end you've just typed on your cursor's
-  line, even a line your batch made. An end on another line, like a
-  block's closing brace below its body, isn't on your line. To move to any other line, the batch gives that line's
-  number, so a batch that would need a number it hasn't seen ends there,
-  and the next one starts after a `read`.
+- **Moves on your cursor's line need no `line`**: `{ to: "line_end" }`, or
+  a spot on it. That's how you step past a close you've just typed on your
+  cursor's line, even a line your batch made. A close on another line, like
+  a block's `}` below its body, isn't on your line. To move to any other
+  line, the batch gives that line's number, so a batch that would need a
+  number it hasn't seen stops there, and the next one starts after a `read`.
+- **A spot is the text around it, with `▌` where your cursor goes**:
+  `at: "import { ▌type Context"` lands right before `type Context`, and
+  `at: "}▌"` right after the `}`. It's the same `▌` that marks your cursor in
+  reports and in the code they show. Exactly one `▌`: if you copy text from a
+  report's code, leave its old `▌` out.
 - **Spots: short, unique on their line.** A spot is checked: if it isn't on
   its line, the batch is rejected at once, with what the line reads and
   where the spot is. Since the line is given, the spot only has to be unique
-  on it: `line: 24, before: "}", after: "\n"` is the end of the brace on line
-  24. `to: "end"` can't be checked, so on another line than your cursor's,
+  on it: `line: 24, at: "}▌"` is right after the brace on line 24.
+  `to: "line_end"` can't be checked, so on another line than your cursor's,
   prefer a spot.
 - **`select` and `point` take the text itself**, long enough to be unique,
   and `near_line` whenever you know the line: of several matches, the one
@@ -335,8 +342,8 @@ type_fast [";", ""]
 - Hopping between files every few lines.
 - Reading the code aloud instead of explaining it.
 - Talking about code before pointing at it.
-- Typing something that has an end with its end last, or putting what comes
-  after the end into `after`.
+- Typing something that has a close with its close last, or putting what
+  comes after the close into `after`.
 - Asking permission for every step.
 - Overwriting or reverting the programmer's edits.
 
@@ -375,35 +382,35 @@ say    "The plan: a Todo type and a small in-memory store in todos.ts, then
 ```
 say    "First, the shape of a todo: an interface with an id, a title, and
         whether it's done."
-move   file: src/todos.ts, line: 1, to: "end"
+move   file: src/todos.ts, line: 1, to: "line_end"
 type   ["", "\n"]
 type   ["export interface Todo {\n  ", "\n}"]
 type   ["id: number;\n  title: string;\n  done: boolean;", ""]
-       (`read` src/todos.ts: the interface ends on line 5)
+       (`read` src/todos.ts: the interface's `}` is on line 5)
 say    "The store is just an array and a counter for ids. `createTodo` is what
         the routes will call."
-move   line: 5, to: "end"
+move   line: 5, to: "line_end"
 type   ["\n\nconst todos: Todo[] = [];\nlet nextId = 1;\n\nexport function createTodo(", ")"]
 type   ["title: string", ""]
-move   to: "end"
+move   to: "line_end"
 type   [": Todo {\n  ", "\n}"]
 say    "It takes the next id, pushes the new todo onto the array, and returns
         it, so the route can send it straight back."
 type   ["const todo = { ", " }"]
 type   ["id: nextId++, title, done: false", ""]
-move   to: "end"
+move   to: "line_end"
 type   [";\n  todos.push(", ")"]
 type   ["todo", ""]
-move   to: "end"
+move   to: "line_end"
 type   [";\n  return todo;", ""]
 ```
 
 *Only what the first path needs. The new file gets its final newline first.
 The one move to another line takes its number from a `read`; the others stay
 on the cursor's line and need none.
-Each end is typed with its opening, filled at once, then stepped past: the
+Each close is typed with its opening, filled at once, then stepped past: the
 parameter list before the function's braces, the object literal before the
-push. What follows an end, like a `;`, is typed after stepping past it. The
+push. What follows a close, like a `;`, is typed after stepping past it. The
 empty `[]` is typed whole. The last `say` explains how the code works, right
 before it's typed. `createTodo` is filled in right away, not left as a stub.*
 
@@ -412,38 +419,38 @@ before it's typed. `createTodo` is filled in right away, not left as a stub.*
 ```
 say    "Now the route. In Express, a route is an HTTP method, a path, and a
         handler that receives the request and the response."
-move   file: src/server.ts, line: 4, before: "app.use(express.json());", after: "\n"
+move   file: src/server.ts, line: 4, at: "app.use(express.json());▌"
 type   ["\n\napp.post(", ")"]
 type   ['"', '"']
 type   ["/todos", ""]
-move   before: '"/todos"', after: ")"
+move   at: '"/todos"▌)'
 type   [", (", ")"]
 type   ["req, res", ""]
-move   before: "(req, res)", after: ")"
+move   at: "(req, res)▌)"
 type   [" => {\n  ", "\n}"]
 say    "`express.json()` above is what parses the body, so `req.body` is an
         object here. We create the todo and answer 201 Created with it as JSON."
 type   ["const todo = createTodo(", ")"]
 type   ["req.body.title", ""]
-move   to: "end"
+move   to: "line_end"
 type   [";\n  res.status(", ")"]
 type   ["201", ""]
-move   to: "end"
+move   to: "line_end"
 type   [".json(", ")"]
 type   ["todo", ""]
-move   to: "end"
+move   to: "line_end"
 type   [";", ""]
        (`read` src/server.ts: the handler's "})" is on line 9)
-move   line: 9, to: "end"
+move   line: 9, to: "line_end"
 type   [";", ""]
 say    "We need to import createTodo."
-move   line: 1, before: 'import express from "express";', after: "\n"
+move   line: 1, at: 'import express from "express";▌'
 type_fast ["\nimport { ", " }"]
 type_fast ["createTodo", ""]
-move   to: "end"
+move   to: "line_end"
 type_fast [' from "', '"']
 type_fast ["./todos", ""]
-move   to: "end"
+move   to: "line_end"
 type_fast [";", ""]
 say    "Let me start the server and send a request."
        (background: runs the server, curl -X POST ...)
@@ -453,10 +460,10 @@ say    "It answered 201 with the new todo, id 1. Creating works."
 *Starts the route at the end of the line above, with the blank line first.
 Never counts lines: moves on the cursor's line need no number, and before
 moving to the handler's closing line, it reads where that is. Steps past a
-closing quote with a spot, since more follows on its line, and past closers
-at the end of a line with `to: "end"`, to add the `;` after them. Jumps back to add the import when it's needed, the
-way a human would. Runs the code and says what happened: something just
-became real.*
+closing quote with a spot, since more follows on its line, and past closes
+at the end of a line with `to: "line_end"`, to add the `;` after them. Jumps
+back to add the import when it's needed, the way a human would. Runs the code
+and says what happened: something just became real.*
 
 **The programmer steps in**
 
@@ -467,7 +474,7 @@ became real.*
 say    "I see you renamed title to text. I'll update createTodo and the POST
         route to match."
        (background: `read` src/todos.ts and src/server.ts)
-move   file: src/todos.ts, line: 10, before: "", after: "export function createTodo("
+move   file: src/todos.ts, line: 10, at: "▌export function createTodo("
 select text: "title: string"
 type   ["text: string", ""]
 select text: "title, done"
@@ -476,7 +483,7 @@ type   ["text, done", ""]
 
 ```
 say    "And the route reads it from the body."
-move   file: src/server.ts, line: 8, before: "", after: "req.body.title"
+move   file: src/server.ts, line: 8, at: "▌req.body.title"
 select text: "req.body.title"
 type   ["req.body.text", ""]
 ```

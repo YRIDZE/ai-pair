@@ -64,12 +64,14 @@ export function resolveAnchor(text: string, anchor: Anchor): Resolution {
 }
 
 /**
- * Resolves a spot: the offset between `before` and `after`, which occur together, on `line`. The
+ * Resolves a spot: where the cursor marker is in `at`, found by the text around it, on `line`. The
  * line is exact: a match elsewhere doesn't count, and is only listed, to show where the text is.
+ * `at` has exactly one marker; see `moveProblem`.
  */
 export function resolveSpot(text: string, spot: Spot): Resolution {
-  const before = unmarked(spot.before)
-  const whole = before + unmarked(spot.after)
+  const at = spot.at.indexOf(CURSOR_MARKER)
+  const before = spot.at.slice(0, at)
+  const whole = before + spot.at.slice(at + CURSOR_MARKER.length)
   const found = findAll(text, whole).map((start) => start + before.length)
   const here = found.filter((at) => position(text, at).line === spot.line)
   if (here.length === 1) return { ok: true, range: { start: here[0]!, end: here[0]! } }
@@ -77,7 +79,7 @@ export function resolveSpot(text: string, spot: Spot): Resolution {
     return {
       ok: false,
       kind: "anchor_ambiguous",
-      message: `${JSON.stringify(whole)} occurs ${here.length} times on line ${spot.line}; make \`before\` and \`after\` longer to be unique`,
+      message: `${JSON.stringify(whole)} occurs ${here.length} times on line ${spot.line}; give \`at\` more text around ▌ to be unique`,
     }
   }
   const reads = `line ${spot.line} reads ${JSON.stringify(lineText(text, spot.line))}`

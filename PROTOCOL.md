@@ -208,7 +208,7 @@ a newline ends its last line. Does not block and does not deliver events.
 ```ts
 type Action =
   | { say: string }
-  | { move: (Spot | { line?: number, to: "end" }) & { file?: string } }
+  | { move: (Spot | { line?: number, to: "line_end" }) & { file?: string } }
   | { select: Span }
   | { type: [before: string, after: string] }
   | { type_fast: [before: string, after: string] }
@@ -246,19 +246,20 @@ in the current file. Clears any selection.
 
 A move goes to a place on `line` (from 1), the line the cursor lands on,
 exactly. Without `line`, it's the cursor's line, in its file: that's how the
-agent steps past an end it just typed without knowing its line's number. The
-place is one of:
+agent steps past a close it just typed without knowing its line's number.
+The place is one of:
 
-- a **spot**: the place between `before` and `after`, two texts that occur
-  together, exactly, with the spot on the line (see [Anchors](#anchors)).
-  `{ line: 3, before: "import { ", after: "type Context" }` lands right
-  before `type Context`, on line 3.
-- `to: "end"`: the end of the line, before its newline.
+- a **spot**, `at`: the exact text around it, with the cursor marker `▌`
+  where the cursor goes, on the line (see [Anchors](#anchors)).
+  `{ line: 3, at: "import { ▌type Context" }` lands right before
+  `type Context`, on line 3. It's the marker reports use for the cursor, so
+  a spot reads the way a report shows the cursor there.
+- `to: "line_end"`: the end of the line, before its newline.
 
 Lines are numbered as `read` and reports show them: a newline at the end of
 a file doesn't start another line, and an empty file has one, line 1. A move
 to a line the file doesn't have, a spot that isn't on its line, or anything
-else, such as a spot with only `before`, or both a spot and `to`, is
+else, such as `at` without exactly one `▌`, or both `at` and `to`, is
 rejected.
 
 The line is exact because an anchor alone can match somewhere the agent
@@ -277,7 +278,7 @@ The cursor ends at the end of the selection.
 
 Types `[before, after]` at the agent cursor, replacing the selection if there
 is one: first `before`, then `after`, then the cursor steps back to between
-them. It's how something with an end is typed with its end before its contents:
+them. It's how something with a close is typed with its close before its contents:
 
 ```jsonc
 { "type": ["update(", ")"] }   // update(|)
@@ -351,7 +352,7 @@ commands can still run in the background with the agent's native tools.
 ## Anchors
 
 Locations are identified by **exact text**. `select` and `point` take an
-anchor, the text itself; `move` takes a spot, the place between two texts,
+anchor, the text itself; `move` takes a spot, a place in the text around it,
 on a given line.
 
 ```ts
@@ -362,8 +363,7 @@ type Anchor = {
 
 type Spot = {
   line?: number                 // the line the spot is on, exactly; omitted: the cursor's line
-  before: string                // exact text right before the spot
-  after: string                 // exact text right after it; either may be empty, not both
+  at: string                    // exact text around the spot, with one ▌ where it is; may span lines
 }
 
 type Span = Anchor | { from: Anchor, to: { text: string } }  // `to`: its first match after `from`
@@ -381,7 +381,8 @@ Resolution of an anchor:
 The way to avoid ambiguity is a longer text: a whole line. `near_line` is a
 tie-breaker: a hint that is off by a few lines still selects the right match.
 
-A spot resolves to the match of `before + after` whose spot is on `line`.
+A spot resolves to the match of its text, `at` without the `▌`, whose `▌` is
+on `line`.
 None there fails with `anchor_not_found`, saying what the line reads and
 listing the lines where the spot does occur; more than one there fails with
 `anchor_ambiguous`.
@@ -445,7 +446,8 @@ Not played:
 ```
 
 **Anchors ignore the cursor marker**, so text can be copied from a report's
-code as it is.
+code as it is. In a spot, `▌` is where the cursor goes, so text copied into
+`at` leaves the report's old `▌` out.
 
 **What counts as played.** A `say` counts once it's shown, even if its
 reading pause is cut short. A `move` or `select` counts once the cursor has
@@ -601,7 +603,7 @@ experience (order of work, narration, background vs. visible work) is in
 ```
 → step
 [{ "say": "Let's add the POST handler. Signature first." },
- { "move": { "file": "src/server.ts", "line": 4, "before": "app.use(express.json());", "after": "\n" } },
+ { "move": { "file": "src/server.ts", "line": 4, "at": "app.use(express.json());▌" } },
  { "type": ["\n\napp.post('/todos', async (req, res) => {\n", "\n});"] }]
 ← returns immediately
 Batch 1 is playing.
@@ -656,10 +658,10 @@ Not played:
 ```
 → step
 [{ "say": "Now the response." },
- { "move": { "line": 30, "before": "  return res.json(", "after": "" } }, ...]
+ { "move": { "line": 30, "at": "  return res.json(▌" } }, ...]
 ← returns immediately
 Your batch was rejected: its action 2 would fail:
-  {"move":{"line":30,"before":"  return res.json(","after":""}}
+  {"move":{"line":30,"at":"  return res.json(▌"}}
 anchor_not_found: The spot isn't on line 30: line 30 reads "  const todo = findTodo(id);". It's on these lines:
   line 12: return res.json(todos);
   line 31: return res.json(todo);

@@ -280,9 +280,9 @@ export class Player {
         line = m.line
       }
       let offset: number
-      if (m.to === "end") offset = lineEnd(text, line)
+      if (m.to === "line_end") offset = lineEnd(text, line)
       else {
-        const r = resolveSpot(text, { before: m.before!, after: m.after!, line })
+        const r = resolveSpot(text, { at: m.at!, line })
         if (!r.ok) return failed(r)
         offset = r.range.start
       }
