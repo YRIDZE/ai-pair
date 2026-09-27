@@ -195,8 +195,9 @@ Returns when:
 Returns the contents of a file **as it is in the editor buffer**, including
 unsaved changes and everything played so far (but not text still queued for
 playback). Falls back to disk for files that aren't open. The result is the
-file's name, whether it has unsaved changes, and its lines, numbered. Does not
-block and does not deliver events.
+file's name, whether it has unsaved changes, and its lines, numbered. Like a
+report's code, it says where the lines reach the end of the file, and whether
+a newline ends its last line. Does not block and does not deliver events.
 
 ## Actions
 
@@ -377,10 +378,16 @@ lines, not as JSON strings full of escapes. It says, in order:
    status, and
    - **its code**: the lines it changed, as they read when it ended, from the
      first changed line to the last, extended to the cursor's line, with the
-     agent cursor marked `▌`. A batch that only moved shows the cursor's line;
-     one that only said something shows no code. Long code skips lines in the
-     middle. This is how the agent checks that the batch did what it meant,
-     in the place it meant, even when it `completed`.
+     agent cursor marked `▌`, and 3 lines of context above and below. A batch
+     that only moved shows the cursor's line, with its context; one that only
+     said something shows no code. Long code skips lines in the middle. This
+     is how the agent checks that the batch did what it meant, in the place it
+     meant, even when it `completed`.
+
+     Where the code reaches the end of the file, it says so, and whether a
+     newline ends the file's last line. A newline at the end of the file isn't
+     shown as an empty line after the last one, unless the cursor is there, so
+     an empty line shown at the end is a blank line in the file.
    - the commands it ran, with their exit code and output,
    - for a failed batch, the error, with candidates for an ambiguous anchor,
    - **what didn't play**, verbatim, one action per line, ready to resubmit.
@@ -401,8 +408,15 @@ The programmer said:
 > use zod for validation
 
 Batch 6 interrupted, in src/server.ts:
+10  app.use(express.json());
+11
+12  app.post('/todos', (req, res) => {
 13    const title = req.body.title;
 14    res.sta▌
+15  });
+16
+17  app.listen(3000);
+    (end of file)
 Not played:
   {"type":["tus(",")"]}
   {"type":["201",""]}
@@ -470,6 +484,7 @@ type BatchError = {
 type Code = {                 // the cursor marked with ▌ in its line
   file: string
   lines: { number: number, text: string }[]
+  end?: { final_newline: boolean }  // when the lines reach the end of the file
 }
 ```
 
@@ -574,11 +589,17 @@ Batch 1 is playing.
  { "type": ["  const title = req.body.title;", ""] }]
 ←
 Batch 1 completed, in src/server.ts:
-4  app.use(express.json());
-5
-6  app.post('/todos', async (req, res) => {
-7  ▌
-8  });
+ 1  import express from 'express';
+ 2
+ 3  const app = express();
+ 4  app.use(express.json());
+ 5
+ 6  app.post('/todos', async (req, res) => {
+ 7  ▌
+ 8  });
+ 9
+10  app.listen(3000);
+    (end of file)
 
 Batch 2 is playing.
 ```

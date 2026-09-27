@@ -60,6 +60,14 @@ describe("reports", () => {
     expect(text).toMatch(/package\.json was changed, not by the programmer.*:\n@@/)
   })
 
+  it("says where code reaches the end of the file, and when no newline ends it", () => {
+    const code = (final_newline: boolean) => ({ file: "a.ts", lines: [{ number: 9, text: "}▌" }], end: { final_newline } })
+    const ending = renderReport(report({ batches: [{ id: 1, status: "completed", code: code(true) }] }), "step")
+    expect(ending).toMatch(/9  }▌\n   \(end of file\)$/)
+    const missing = renderReport(report({ batches: [{ id: 1, status: "completed", code: code(false) }] }), "step")
+    expect(missing).toMatch(/\(end of file, with no newline after the last line\)$/)
+  })
+
   it("shows gaps in long code", () => {
     const lines = [1, 2, 58, 59].map((number) => ({ number, text: `line ${number}` }))
     const text = renderReport(report({ batches: [{ id: 1, status: "completed", code: { file: "a.ts", lines } }] }), "step")
@@ -150,5 +158,13 @@ describe("files", () => {
     expect(text).toMatch(/a\.ts/)
     expect(text).toMatch(/unsaved/)
     expect(text).toMatch(/1 +hi/)
+  })
+
+  it("says where the file ends, and when no newline ends it, even when it's empty", () => {
+    const lines = [{ number: 1, text: "hi" }]
+    expect(renderFile({ file: "a.ts", dirty: false, lines, end: { final_newline: true } })).toMatch(/1  hi\n   \(end of file\)$/)
+    expect(renderFile({ file: "a.ts", dirty: false, lines, end: { final_newline: false } })).toMatch(/no newline after the last line/)
+    expect(renderFile({ file: "a.ts", dirty: false, lines: [], end: { final_newline: true } })).toBe("a.ts:\n   (end of file)")
+    expect(renderFile({ file: "a.ts", dirty: false, lines: [] })).toMatch(/no lines in this range/)
   })
 })

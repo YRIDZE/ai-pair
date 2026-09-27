@@ -90,10 +90,16 @@ export type RunResult = {
 /** Marks the agent cursor in a report's code. Anchors ignore it, so code can be copied from a report as is. */
 export const CURSOR_MARKER = "▌"
 
-/** Lines of a file as they read, with the agent cursor marked. Long code skips lines in the middle. */
+/**
+ * Lines of a file as they read, with the agent cursor marked. Long code skips lines in the middle. A
+ * newline at the end of the file ends its last line: there's no empty line after it, unless the
+ * cursor is there.
+ */
 export type Code = {
   file: string
   lines: { number: number; text: string }[]
+  /** Present when the lines reach the end of the file: whether a newline ends its last line. */
+  end?: { final_newline: boolean }
 }
 
 export type BatchError = { kind: ErrorKind; message: string; candidates?: Candidate[] }
@@ -151,7 +157,10 @@ export type Report = {
 export type FileContent = {
   file: string
   dirty: boolean
+  /** As in `Code`: a newline at the end of the file ends its last line. An empty file has none. */
   lines: { number: number; text: string }[]
+  /** Present when the lines reach the end of the file: whether a newline ends its last line. */
+  end?: { final_newline: boolean }
 }
 
 export type ToolErrorCode = "no_session" | "session_active" | "no_editor" | "cancelled" | "invalid_arguments"

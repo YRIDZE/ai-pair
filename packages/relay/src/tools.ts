@@ -146,7 +146,7 @@ An empty batch waits for your queued batches without waiting for the programmer.
   },
   read: {
     description:
-      "Read a file as it is in the programmer's editor, including unsaved changes and everything you've typed so far. Prefer this over your own file tools for files the programmer may have touched during the session. Lines are numbered from 1.",
+      "Read a file as it is in the programmer's editor, including unsaved changes and everything you've typed so far. Prefer this over your own file tools for files the programmer may have touched during the session. Lines are numbered from 1; it says where the file ends, and whether a newline ends its last line.",
     inputSchema: {
       file,
       from_line: z.number().int().optional(),

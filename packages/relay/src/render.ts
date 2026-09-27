@@ -12,7 +12,7 @@ export function renderReport(report: Report, tool: ReportingTool): string {
   for (const b of report.batches) sections.push(renderBatch(b))
   if (report.submitted) sections.push(`Batch ${report.submitted.id} is ${report.submitted.status}.`)
   if (report.rejected) sections.push(renderRejected(report.rejected))
-  if (report.cursor) sections.push(`Your cursor, in ${report.cursor.file}:\n${renderLines(report.cursor.lines)}`)
+  if (report.cursor) sections.push(`Your cursor, in ${report.cursor.file}:\n${renderCode(report.cursor)}`)
   if (report.waiting) {
     sections.push(tool === "listen" ? "Nothing has happened yet. Call `listen` again." : "Nothing has finished yet. Carry on as usual.")
   }
@@ -26,7 +26,8 @@ export function renderReport(report: Report, tool: ReportingTool): string {
 
 export function renderFile(content: FileContent): string {
   const header = content.dirty ? `${content.file} (with unsaved changes in the editor):` : `${content.file}:`
-  return content.lines.length > 0 ? `${header}\n${renderLines(content.lines)}` : `${header} no lines in this range.`
+  if (content.lines.length === 0 && !content.end) return `${header} no lines in this range.`
+  return `${header}\n${renderLines(content.lines, endNote(content.end))}`
 }
 
 function renderEvent(e: Event): string {
@@ -48,7 +49,7 @@ function renderEvent(e: Event): string {
 
 function renderBatch(b: BatchResult): string {
   const parts = [b.code ? `Batch ${b.id} ${b.status}, in ${b.code.file}:` : `Batch ${b.id} ${b.status}.`]
-  if (b.code) parts.push(renderLines(b.code.lines))
+  if (b.code) parts.push(renderCode(b.code))
   for (const run of b.runs ?? []) parts.push(renderRun(run))
   if (b.error) parts.push(renderError(b.error))
   if (b.unplayed) {
@@ -64,7 +65,7 @@ function renderRejected(r: NonNullable<Report["rejected"]>): string {
     `  ${JSON.stringify(r.action)}`,
     renderError(r.error),
   ]
-  if (r.code) parts.push(`The code would read then, in ${r.code.file}:\n${renderLines(r.code.lines)}`)
+  if (r.code) parts.push(`The code would read then, in ${r.code.file}:\n${renderCode(r.code)}`)
   parts.push("Nothing of it was queued. Fix it and submit the whole batch again.")
   return parts.join("\n")
 }
@@ -90,8 +91,18 @@ function renderExcerpt(x: Excerpt): string {
   return `About the code they had selected, ${x.file} ${where}:\n${renderLines(lines)}${cut}`
 }
 
-/** Numbered lines; a gap in the numbers is shown as `…`. */
-function renderLines(lines: Code["lines"]): string {
+/** A report's code, and where it reaches the end of the file, whether the file ends with a newline. */
+function renderCode(code: Code): string {
+  return renderLines(code.lines, endNote(code.end))
+}
+
+function endNote(end: Code["end"]): string | undefined {
+  if (!end) return undefined
+  return end.final_newline ? "(end of file)" : "(end of file, with no newline after the last line)"
+}
+
+/** Numbered lines; a gap in the numbers is shown as `…`. A `note` goes below them, aligned with the text. */
+function renderLines(lines: Code["lines"], note?: string): string {
   const width = String(lines.at(-1)?.number ?? 0).length
   const out: string[] = []
   let previous: number | undefined
@@ -100,6 +111,7 @@ function renderLines(lines: Code["lines"]): string {
     out.push(`${String(number).padStart(width)}  ${text}`.trimEnd())
     previous = number
   }
+  if (note) out.push(`${" ".repeat(width)}  ${note}`)
   return out.join("\n")
 }
 

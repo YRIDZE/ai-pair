@@ -7,7 +7,7 @@ import { fileDiff } from "./diff"
 import { agentPath, displayPath, Player, type Scene } from "./player"
 import type { AgentState, Change, CursorView, EditorPort, PanelPort, Ref, SharedSelection } from "./ports"
 import { rehearse, type Rehearsal } from "./rehearsal"
-import { splitLines } from "./text"
+import { fileLines } from "./text"
 import { Timeline } from "./timeline"
 import { defaultTiming, withOverrides, type Timing, type TimingOverrides } from "./timing"
 
@@ -195,14 +195,16 @@ export class Controller {
     const s = this.requireSession()
     const path = this.resolvePath(s, file)
     return (async () => {
-      const lines = splitLines(await this.editor.getText(path))
+      const { lines, finalNewline } = fileLines(await this.editor.getText(path))
       const from = Math.max(1, fromLine ?? 1)
       const to = Math.min(lines.length, toLine ?? lines.length)
-      return {
+      const content: FileContent = {
         file: this.displayPath(s, path),
         dirty: await this.editor.isDirty(path),
         lines: lines.slice(from - 1, to).map((text, i) => ({ number: from + i, text })),
       }
+      if (to === lines.length) content.end = { final_newline: finalNewline }
+      return content
     })()
   }
 
@@ -547,7 +549,7 @@ export class Controller {
     }
     if (!s.scene.cursor) return report
     const cursor = await s.player.code({ moved: true })
-    const line = cursor?.lines[0]
+    const line = cursor?.lines.find((l) => l.text.includes(CURSOR_MARKER))
     if (!cursor || !line) return report
     const key = `${cursor.file}:${line.number}:${line.text}`
     if (key === s.seenCursor) return report

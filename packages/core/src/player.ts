@@ -7,7 +7,7 @@ import { actionKinds, CURSOR_MARKER, moveProblem } from "@ai-pair/protocol"
 import { resolveSpan, resolveSpot, type Resolution } from "./anchors"
 import type { Config } from "./controller"
 import type { EditorPort, Focus, PanelPort } from "./ports"
-import { isLineStart, lineEnd, position, splitLines } from "./text"
+import { fileLines, isLineStart, lineEnd, position, splitLines } from "./text"
 import type { Pacing } from "./timeline"
 import { planTyping, readingTime } from "./typing"
 
@@ -62,6 +62,9 @@ type Playing = {
 
 /** A report's code longer than this skips lines in the middle. */
 const MAX_CODE_LINES = 40
+
+/** Lines of context around a report's code, above and below. */
+const CONTEXT_LINES = 3
 
 const ok: Outcome = { kind: "ok" }
 
@@ -123,13 +126,13 @@ export class Player {
     return result
   }
 
-  /** The lines changed in `span`, extended to the cursor's line, with the cursor marked. */
+  /** The lines changed in `span`, extended to the cursor's line, with context around, and the cursor marked. */
   async code({ span, moved }: { span?: Range; moved: boolean }): Promise<Code | undefined> {
     const s = this.scene
     const file = span?.file ?? (moved ? s.cursor?.file : undefined)
     if (!file) return undefined
     const text = await this.stage.editor.getText(file)
-    const lines = splitLines(text)
+    const { lines, finalNewline } = fileLines(text)
     const at = s.cursor?.file === file ? position(text, s.cursor.offset) : undefined
     let from = at?.line ?? Infinity
     let to = at?.line ?? -Infinity
@@ -139,12 +142,16 @@ export class Player {
       from = Math.min(from, position(text, span.start).line)
       to = Math.max(to, position(text, end).line)
     }
+    // The empty line after a final newline isn't one of the file's lines, but the cursor may be on it.
+    const last = lines.length
+    from = Math.max(1, from - CONTEXT_LINES)
+    to = Math.min(Math.max(last, at?.line ?? 0), to + CONTEXT_LINES)
     const numbers: number[] = []
     for (let n = from; n <= to; n++) {
       const long = to - from + 1 > MAX_CODE_LINES
       if (!long || n < from + MAX_CODE_LINES / 2 || n > to - MAX_CODE_LINES / 2 || n === at?.line) numbers.push(n)
     }
-    return {
+    const code: Code = {
       file: this.displayPath(file),
       lines: numbers.map((n) => {
         const line = lines[n - 1] ?? ""
@@ -152,6 +159,8 @@ export class Player {
         return { number: n, text: line.slice(0, at.column - 1) + CURSOR_MARKER + line.slice(at.column - 1) }
       }),
     }
+    if (to >= last) code.end = { final_newline: finalNewline }
+    return code
   }
 
   /** Keeps the positions playback holds in place through a change someone else made. */

@@ -16,6 +16,18 @@ export function splitLines(text: string): string[] {
   return text.split(/\r?\n/)
 }
 
+/**
+ * A file's lines, as the agent is shown them: a newline at the end ends the last line, and doesn't
+ * start an empty one after it. An empty file has no lines.
+ */
+export function fileLines(text: string): { lines: string[]; finalNewline: boolean } {
+  if (text === "") return { lines: [], finalNewline: true }
+  const lines = splitLines(text)
+  const finalNewline = text.endsWith("\n")
+  if (finalNewline) lines.pop()
+  return { lines, finalNewline }
+}
+
 export function lineText(text: string, line: number): string {
   return splitLines(text)[line - 1] ?? ""
 }

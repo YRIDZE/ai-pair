@@ -28,7 +28,9 @@ describe("timing", () => {
     expect(editor.text("a.ts")).toBe("ab")
 
     const report = await until(secondCall)
-    expect(report.batches).toEqual([{ id: 1, status: "completed", code: { file: "a.ts", lines: [{ number: 1, text: "abc▌" }] } }])
+    expect(report.batches).toEqual([
+      { id: 1, status: "completed", code: { file: "a.ts", lines: [{ number: 1, text: "abc▌" }], end: { final_newline: false } } },
+    ])
     expect(report.submitted).toEqual({ id: 2, status: "playing" })
 
     await advance(200)
@@ -125,7 +127,7 @@ describe("editing", () => {
     await controller.step([{ move: { file: "a.ts" } }, { type: ["update(", ")"] }, { type: ["ctx, dt", ""] }])
     const report = await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("update(ctx, dt)")
-    expect(report.batches[0]!.code).toEqual({ file: "a.ts", lines: [{ number: 1, text: "update(ctx, dt▌)" }] })
+    expect(report.batches[0]!.code).toEqual({ file: "a.ts", lines: [{ number: 1, text: "update(ctx, dt▌)" }], end: { final_newline: false } })
     const pair = editor.edits.slice(0, "update()".length)
     expect(pair.map((e) => e.text).join("")).toBe("update()")
     expect(pair.map((e) => [e.options.undoStopBefore, e.options.undoStopAfter])).toEqual([
@@ -251,7 +253,15 @@ describe("rehearsal", () => {
             { line: 2, context: "x" },
           ],
         },
-        code: { file: "a.ts", lines: [{ number: 3, text: "y▌" }] },
+        code: {
+          file: "a.ts",
+          lines: [
+            { number: 1, text: "x" },
+            { number: 2, text: "x" },
+            { number: 3, text: "y▌" },
+          ],
+          end: { final_newline: false },
+        },
       },
     })
     await advance(5000)
@@ -355,8 +365,8 @@ describe("pointing", () => {
 })
 
 describe("reports", () => {
-  it("shows the lines a batch changed, extended to the cursor, as they read when it ended", async () => {
-    const { controller } = setup({ "a.ts": "a\nb\nc\n" })
+  it("shows the lines a batch changed, extended to the cursor, as they read when it ended, with context", async () => {
+    const { controller } = setup({ "a.ts": "1\n2\n3\n4\na\nb\nc\n5\n6\n7\n8\n" })
     await controller.start()
     await controller.step([
       { move: { file: "a.ts", before: "a", after: "\n" } },
@@ -367,14 +377,56 @@ describe("reports", () => {
     expect(report.batches[0]!.code).toEqual({
       file: "a.ts",
       lines: [
-        { number: 1, text: "a" },
-        { number: 2, text: "  x" },
-        { number: 3, text: "b" },
-        { number: 4, text: "c▌" },
+        { number: 2, text: "2" },
+        { number: 3, text: "3" },
+        { number: 4, text: "4" },
+        { number: 5, text: "a" },
+        { number: 6, text: "  x" },
+        { number: 7, text: "b" },
+        { number: 8, text: "c▌" },
+        { number: 9, text: "5" },
+        { number: 10, text: "6" },
+        { number: 11, text: "7" },
       ],
     })
     // The code shows the cursor, so the report doesn't repeat it.
     expect(report.cursor).toBeUndefined()
+  })
+
+  it("says where the code reaches the end of the file, and whether a newline ends it", async () => {
+    const { controller } = setup({ "a.ts": "a\n\n", "b.ts": "a\nb" })
+    await controller.start()
+    await until(controller.step([{ move: { file: "a.ts", before: "a", after: "" } }]))
+    const blank = await until(controller.step([{ move: { file: "b.ts", before: "a", after: "" } }]))
+    // The blank line at the end is a line; the final newline isn't another one.
+    expect(blank.batches[0]!.code).toEqual({
+      file: "a.ts",
+      lines: [
+        { number: 1, text: "a▌" },
+        { number: 2, text: "" },
+      ],
+      end: { final_newline: true },
+    })
+    const missing = await until(controller.step([{ move: { file: "a.ts", to: "file_end" } }]))
+    expect(missing.batches[0]!.code).toEqual({
+      file: "b.ts",
+      lines: [
+        { number: 1, text: "a▌" },
+        { number: 2, text: "b" },
+      ],
+      end: { final_newline: false },
+    })
+    // With the cursor after the final newline, its empty line is shown.
+    const after = await until(controller.step([]))
+    expect(after.batches[0]!.code).toEqual({
+      file: "a.ts",
+      lines: [
+        { number: 1, text: "a" },
+        { number: 2, text: "" },
+        { number: 3, text: "▌" },
+      ],
+      end: { final_newline: true },
+    })
   })
 
   it("skips the middle of long code, keeping the cursor's line", async () => {
@@ -394,14 +446,21 @@ describe("reports", () => {
     await controller.start()
     await until(controller.step([{ move: { file: "a.ts", before: "ab", after: "c" } }]))
     const report = await until(controller.step([{ say: "Hm." }]))
-    expect(report.batches[0]!.code).toEqual({ file: "a.ts", lines: [{ number: 1, text: "ab▌c" }] })
+    expect(report.batches[0]!.code).toEqual({ file: "a.ts", lines: [{ number: 1, text: "ab▌c" }], end: { final_newline: true } })
     expect(report.cursor).toBeUndefined()
     const next = await until(controller.step([]))
     expect(next.cursor).toBeUndefined()
 
     editor.userEdit("a.ts", 0, 0, "\n")
     const moved = await until(controller.listen())
-    expect(moved.cursor).toEqual({ file: "a.ts", lines: [{ number: 2, text: "ab▌c" }] })
+    expect(moved.cursor).toEqual({
+      file: "a.ts",
+      lines: [
+        { number: 1, text: "" },
+        { number: 2, text: "ab▌c" },
+      ],
+      end: { final_newline: true },
+    })
   })
 
   it("returns what's left of a type cut inside its second part", async () => {
@@ -450,7 +509,7 @@ describe("interruptions", () => {
         {
           id: 1,
           status: "interrupted",
-          code: { file: "a.ts", lines: [{ number: 1, text: "hel▌" }] },
+          code: { file: "a.ts", lines: [{ number: 1, text: "hel▌" }], end: { final_newline: false } },
           unplayed: [{ type: ["lo world", ""] }],
         },
         { id: 2, status: "discarded", unplayed: [{ type: ["!", ""] }] },
@@ -495,7 +554,7 @@ describe("interruptions", () => {
     const report = await until(listen)
     expect(report.events).toEqual([{ kind: "edit", file: "a.ts", diff: expect.stringContaining("+XXhello"), by: "programmer" }])
     // The batch's code showed the cursor before the edit, so the report shows where it is now.
-    expect(report.cursor).toEqual({ file: "a.ts", lines: [{ number: 1, text: "XXhello▌" }] })
+    expect(report.cursor).toEqual({ file: "a.ts", lines: [{ number: 1, text: "XXhello▌" }], end: { final_newline: true } })
   })
 
   it("reports changes the programmer didn't make without interrupting, or waking `listen`", async () => {
@@ -648,6 +707,23 @@ describe("sessions", () => {
 
     await controller.start("second")
     expect(controller.isActive).toBe(true)
+  })
+
+  it("reads a file's lines as reports show them, saying where it ends", async () => {
+    const { controller } = setup({ "a.ts": "a\n\n", "b.ts": "a\nb", "c.ts": "" })
+    await controller.start()
+    expect(await controller.read("a.ts")).toEqual({
+      file: "a.ts",
+      dirty: false,
+      lines: [
+        { number: 1, text: "a" },
+        { number: 2, text: "" },
+      ],
+      end: { final_newline: true },
+    })
+    expect(await controller.read("b.ts", 1, 1)).toEqual({ file: "b.ts", dirty: false, lines: [{ number: 1, text: "a" }] })
+    expect((await controller.read("b.ts", 2)).end).toEqual({ final_newline: false })
+    expect(await controller.read("c.ts")).toEqual({ file: "c.ts", dirty: false, lines: [], end: { final_newline: true } })
   })
 
   it("resolves paths under the agent's root into the editor's canonical form", async () => {

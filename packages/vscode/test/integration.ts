@@ -125,7 +125,14 @@ export async function run(): Promise<void> {
   assert.equal(next?.status, "discarded")
   assert.equal(report.events[0]?.kind, "edit")
   assert.equal(doc.getText(), "// mine\n" + typed)
-  assert.deepEqual(typing.code, { file: "scratch.ts", lines: [{ number: 2, text: typed + "▌" }] })
+  assert.deepEqual(typing.code, {
+    file: "scratch.ts",
+    lines: [
+      { number: 1, text: "// mine" },
+      { number: 2, text: typed + "▌" },
+    ],
+    end: { final_newline: false },
+  })
   await c.end()
   console.log(`interrupted after typing ${JSON.stringify(typed)}`)
 
