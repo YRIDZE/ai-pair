@@ -208,7 +208,7 @@ a newline ends its last line. Does not block and does not deliver events.
 ```ts
 type Action =
   | { say: string }
-  | { move: (Spot | { line: number, to: "end" }) & { file?: string } }
+  | { move: (Spot | { line?: number, to: "end" }) & { file?: string } }
   | { select: Span }
   | { type: [before: string, after: string] }
   | { type_fast: [before: string, after: string] }
@@ -244,11 +244,13 @@ Moves the agent cursor. If `file` is given, switches to that file (opening it
 if needed, and creating it empty if it doesn't exist); otherwise the move is
 in the current file. Clears any selection.
 
-Every move gives the `line` the cursor lands on, exactly, from 1, and a place
-on it:
+A move goes to a place on `line` (from 1), the line the cursor lands on,
+exactly. Without `line`, it's the cursor's line, in its file: that's how the
+agent steps past an end it just typed without knowing its line's number. The
+place is one of:
 
 - a **spot**: the place between `before` and `after`, two texts that occur
-  together, exactly, with the spot on `line` (see [Anchors](#anchors)).
+  together, exactly, with the spot on the line (see [Anchors](#anchors)).
   `{ line: 3, before: "import { ", after: "type Context" }` lands right
   before `type Context`, on line 3.
 - `to: "end"`: the end of the line, before its newline.
@@ -261,7 +263,9 @@ rejected.
 
 The line is exact because an anchor alone can match somewhere the agent
 didn't mean: a closing brace one block too far. Giving the line the agent read
-the code at turns that slip into an error it sees at once.
+the code at turns that slip into an error it sees at once. The agent takes
+line numbers only from `read` and reports, never counts them; that's why a
+move on the cursor's line needs none.
 
 ### `select`
 
@@ -357,7 +361,7 @@ type Anchor = {
 }
 
 type Spot = {
-  line: number                  // the line the spot is on, exactly
+  line?: number                 // the line the spot is on, exactly; omitted: the cursor's line
   before: string                // exact text right before the spot
   after: string                 // exact text right after it; either may be empty, not both
 }

@@ -121,6 +121,27 @@ describe("editing", () => {
     expect(editor.text("a.ts")).toBe("a!\n\nnew\n\nb\n")
   })
 
+  it("moves on the cursor's line without `line`, to step past an end just typed", async () => {
+    const { editor, controller } = setup({ "a.ts": "a\n", "b.ts": "b\n" })
+    await controller.start()
+    await controller.step([
+      { move: { file: "a.ts", line: 1, to: "end" } },
+      { type: ["\n\nif (", ")"] },
+      { type: ["x", ""] },
+      { move: { to: "end" } },
+      { type: [" {\n  ", "\n}"] },
+      { type: ["f(", ", 2)"] },
+      { type: ["1", ""] },
+      { move: { before: "1, ", after: "2" } },
+      { type: ["0 + ", ""] },
+    ])
+    await until(controller.step([]))
+    expect(editor.text("a.ts")).toBe("a\n\nif (x) {\n  f(1, 0 + 2)\n}\n")
+    // Not in another file, or before the cursor is anywhere.
+    const other = await until(controller.step([{ move: { file: "b.ts", to: "end" } }]))
+    expect(other.rejected?.error).toMatchObject({ kind: "invalid_action", message: expect.stringContaining("Give `line`") })
+  })
+
   it("moves to the end of the last line, before the final newline, and no further", async () => {
     const { editor, controller } = setup({ "a.ts": "a\n", "b.ts": "b", "c.ts": "c\r\n", "d.ts": "" })
     await controller.start()

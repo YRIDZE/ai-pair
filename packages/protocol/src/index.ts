@@ -11,11 +11,14 @@ export type Span = Anchor | { from: Anchor; to: { text: string } }
 /** The offset between `before` and `after`, which occur together, exactly, placing it on `line`. */
 export type Spot = { before: string; after: string; line: number }
 
-/** Where a `move` goes: on `line`, exactly, the spot between `before` and `after`, or the end of the line. */
+/**
+ * Where a `move` goes: on `line`, exactly, the spot between `before` and `after`, or the end of the
+ * line. Without `line`, on the cursor's line.
+ */
 export type MoveTarget = {
   file?: string
-  /** The line the cursor lands on, from 1. */
-  line: number
+  /** The line the cursor lands on, from 1. Omitted: the cursor's line. */
+  line?: number
   /** A spot on the line: see `Spot`. */
   before?: string
   after?: string
@@ -46,8 +49,8 @@ export function actionKinds(value: object): string[] {
 
 /** What's wrong with a `move`'s combination of fields, if anything. */
 export function moveProblem(m: MoveTarget): string | undefined {
-  if (!Number.isInteger(m.line) || m.line < 1) {
-    return "Give the `line` to move to, from 1, exactly as your latest `read` or report shows it."
+  if (m.line !== undefined && (!Number.isInteger(m.line) || m.line < 1)) {
+    return "`line` is a line number, from 1, exactly as your latest `read` or report shows it. Omit it to stay on your cursor's line."
   }
   const spot = m.before !== undefined || m.after !== undefined
   if (spot && (m.before === undefined || m.after === undefined)) {

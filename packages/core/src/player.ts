@@ -265,16 +265,24 @@ export class Player {
       if (!(await this.delay(timing.beforeMoveMs))) return { kind: "interrupted" }
       await editor.show(file)
       const text = await editor.getText(file)
-      // An empty file has one line, the empty one; a newline at the end doesn't start another.
-      const lines = Math.max(1, fileLines(text).lines.length)
-      if (m.line > lines) {
-        const has = lines === 1 ? "1 line" : `${lines} lines`
-        return fail("anchor_not_found", `There's no line ${m.line}: ${this.displayPath(file)} has ${has}.`)
+      let line: number
+      if (m.line === undefined) {
+        // On the cursor's line, which may be the empty one after a final newline, if it's there.
+        if (s.cursor?.file !== file) return fail("invalid_action", "Give `line`: without it, a move stays on your cursor's line, in its file.")
+        line = position(text, s.cursor.offset).line
+      } else {
+        // An empty file has one line, the empty one; a newline at the end doesn't start another.
+        const lines = Math.max(1, fileLines(text).lines.length)
+        if (m.line > lines) {
+          const has = lines === 1 ? "1 line" : `${lines} lines`
+          return fail("anchor_not_found", `There's no line ${m.line}: ${this.displayPath(file)} has ${has}.`)
+        }
+        line = m.line
       }
       let offset: number
-      if (m.to === "end") offset = lineEnd(text, m.line)
+      if (m.to === "end") offset = lineEnd(text, line)
       else {
-        const r = resolveSpot(text, { before: m.before!, after: m.after!, line: m.line })
+        const r = resolveSpot(text, { before: m.before!, after: m.after!, line })
         if (!r.ok) return failed(r)
         offset = r.range.start
       }
