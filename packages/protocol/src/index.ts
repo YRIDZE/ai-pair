@@ -8,20 +8,19 @@ export type Anchor = {
 /** A single anchor's match, or from the start of `from` to the end of the first `to` after it. */
 export type Span = Anchor | { from: Anchor; to: { text: string } }
 
-/** The offset between `before` and `after`, which occur together, exactly. */
-export type Spot = { before: string; after: string; near_line?: number }
+/** The offset between `before` and `after`, which occur together, exactly, placing it on `line`. */
+export type Spot = { before: string; after: string; line: number }
 
-/** Where a `move` goes: one of a spot, `to`, or `lines`; with only `file`, the file's start. */
+/** Where a `move` goes: on `line`, exactly, the spot between `before` and `after`, or the end of the line. */
 export type MoveTarget = {
   file?: string
-  /** A spot: see `Spot`. */
+  /** The line the cursor lands on, from 1. */
+  line: number
+  /** A spot on the line: see `Spot`. */
   before?: string
   after?: string
-  near_line?: number
-  /** `end`: the end of the cursor's line. */
-  to?: "end" | "file_start" | "file_end"
-  /** Relative: this many lines down (negative: up) from the cursor, to the end of that line. */
-  lines?: number
+  /** `end`: the end of the line. */
+  to?: "end"
 }
 
 /** Typed as `before` then `after`, leaving the cursor between them. */
@@ -47,15 +46,16 @@ export function actionKinds(value: object): string[] {
 
 /** What's wrong with a `move`'s combination of fields, if anything. */
 export function moveProblem(m: MoveTarget): string | undefined {
+  if (!Number.isInteger(m.line) || m.line < 1) {
+    return "Give the `line` to move to, from 1, exactly as your latest `read` or report shows it."
+  }
   const spot = m.before !== undefined || m.after !== undefined
   if (spot && (m.before === undefined || m.after === undefined)) {
     return "A spot needs both `before` and `after` (either may be empty)."
   }
   if (spot && m.before === "" && m.after === "") return "`before` and `after` can't both be empty."
-  if (m.near_line !== undefined && !spot) return "`near_line` only goes with `before` and `after`."
-  const targets = [spot && "`before`/`after`", m.to !== undefined && "`to`", m.lines !== undefined && "`lines`"].filter(Boolean)
-  if (targets.length > 1) return `Give one place to move to, not ${targets.join(" and ")}.`
-  if (targets.length === 0 && m.file === undefined) return "Give a place to move to: `before`/`after`, `to`, or `lines`."
+  if (spot && m.to !== undefined) return "Give one place on the line: `before`/`after`, or `to: \"end\"`, not both."
+  if (!spot && m.to === undefined) return "Give the place on the line: `before`/`after`, or `to: \"end\"`."
   return undefined
 }
 

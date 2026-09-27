@@ -204,8 +204,7 @@ a newline ends its last line. Does not block and does not deliver events.
 ```ts
 type Action =
   | { say: string }
-  | { move: (Spot | { to: "end" | "file_start" | "file_end" } | { lines: number } | {})
-            & { file?: string } }
+  | { move: (Spot | { line: number, to: "end" }) & { file?: string } }
   | { select: Span }
   | { type: [before: string, after: string] }
   | { type_fast: [before: string, after: string] }
@@ -239,20 +238,26 @@ batches.
 
 Moves the agent cursor. If `file` is given, switches to that file (opening it
 if needed, and creating it empty if it doesn't exist); otherwise the move is
-in the current file. Clears any selection. The cursor goes to one of:
+in the current file. Clears any selection.
+
+Every move gives the `line` the cursor lands on, exactly, from 1, and a place
+on it:
 
 - a **spot**: the place between `before` and `after`, two texts that occur
-  together, exactly (see [Anchors](#anchors)).
-  `{ before: "import { ", after: "type Context" }` lands right before
-  `type Context`.
-- `to: "end"`: the end of the cursor's line.
-- `to: "file_start"`, or `to: "file_end"`: the end of the file's last line,
-  before the newline that ends it, if there is one.
-- `lines: n`: n lines down (negative: up) from the agent cursor, to the end of
-  that line, like arrow keys.
+  together, exactly, with the spot on `line` (see [Anchors](#anchors)).
+  `{ line: 3, before: "import { ", after: "type Context" }` lands right
+  before `type Context`, on line 3.
+- `to: "end"`: the end of the line, before its newline.
 
-With only `file`, the cursor goes to the start of that file. Anything else,
-such as a spot with only `before`, or both a spot and `to`, is rejected.
+Lines are numbered as `read` and reports show them: a newline at the end of
+a file doesn't start another line, and an empty file has one, line 1. A move
+to a line the file doesn't have, a spot that isn't on its line, or anything
+else, such as a spot with only `before`, or both a spot and `to`, is
+rejected.
+
+The line is exact because an anchor alone can match somewhere the agent
+didn't mean: a closing brace one block too far. Giving the line the agent read
+the code at turns that slip into an error it sees at once.
 
 ### `select`
 
@@ -338,7 +343,8 @@ commands can still run in the background with the agent's native tools.
 ## Anchors
 
 Locations are identified by **exact text**. `select` and `point` take an
-anchor, the text itself; `move` takes a spot, the place between two texts.
+anchor, the text itself; `move` takes a spot, the place between two texts,
+on a given line.
 
 ```ts
 type Anchor = {
@@ -347,27 +353,30 @@ type Anchor = {
 }
 
 type Spot = {
+  line: number                  // the line the spot is on, exactly
   before: string                // exact text right before the spot
   after: string                 // exact text right after it; either may be empty, not both
-  near_line?: number
 }
 
 type Span = Anchor | { from: Anchor, to: { text: string } }  // `to`: its first match after `from`
 ```
 
-Resolution:
+Resolution of an anchor:
 
-1. Find all exact matches of `text`, or of `before + after` together.
+1. Find all exact matches of `text`.
 2. Exactly one match: done.
 3. Several matches: if `near_line` is given, pick the match closest to that
    line.
 4. Otherwise the action fails with `anchor_not_found` or `anchor_ambiguous`,
    listing candidates (line number plus a line of context).
 
-The way to avoid ambiguity is a longer text: a whole line, or a spot with
-context on both sides. Line numbers are poor addresses (the programmer's edits
-shift them) but acceptable tie-breakers: a hint that is off by a few lines
-still selects the right match.
+The way to avoid ambiguity is a longer text: a whole line. `near_line` is a
+tie-breaker: a hint that is off by a few lines still selects the right match.
+
+A spot resolves to the match of `before + after` whose spot is on `line`.
+None there fails with `anchor_not_found`, saying what the line reads and
+listing the lines where the spot does occur; more than one there fails with
+`anchor_ambiguous`.
 
 ## Reports
 
@@ -580,7 +589,7 @@ experience (order of work, narration, background vs. visible work) is in
 ```
 → step
 [{ "say": "Let's add the POST handler. Signature first." },
- { "move": { "file": "src/server.ts", "before": "app.use(express.json());", "after": "\n" } },
+ { "move": { "file": "src/server.ts", "line": 4, "before": "app.use(express.json());", "after": "\n" } },
  { "type": ["\n\napp.post('/todos', async (req, res) => {\n", "\n});"] }]
 ← returns immediately
 Batch 1 is playing.
@@ -630,16 +639,16 @@ Not played:
  { "delete": true }, ...]
 ```
 
-### Ambiguous anchor
+### A spot on the wrong line
 
 ```
 → step
 [{ "say": "Now the response." },
- { "move": { "before": "  return res.json(", "after": "" } }, ...]
+ { "move": { "line": 30, "before": "  return res.json(", "after": "" } }, ...]
 ← returns immediately
 Your batch was rejected: its action 2 would fail:
-  {"move":{"before":"  return res.json(","after":""}}
-anchor_ambiguous: 2 matches for "  return res.json("; make it longer to be unique, or add near_line
+  {"move":{"line":30,"before":"  return res.json(","after":""}}
+anchor_not_found: The spot isn't on line 30: line 30 reads "  const todo = findTodo(id);". It's on these lines:
   line 12: return res.json(todos);
   line 31: return res.json(todo);
 The code would read then, in src/server.ts:

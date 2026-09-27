@@ -32,7 +32,7 @@ describe("reports", () => {
       report({
         rejected: {
           index: 3,
-          action: { move: { before: "x", after: "" } },
+          action: { move: { line: 2, before: "x", after: "" } },
           error: { kind: "anchor_ambiguous", message: "2 matches", candidates: [{ line: 1, context: "x" }] },
           code: { file: "a.ts", lines: [{ number: 3, text: "y▌" }] },
         },
@@ -40,7 +40,7 @@ describe("reports", () => {
       "step",
     )
     expect(text).toMatch(/rejected/)
-    expect(text).toMatch(/action 3 would fail:\n  \{"move":\{"before":"x","after":""\}\}/)
+    expect(text).toMatch(/action 3 would fail:\n  \{"move":\{"line":2,"before":"x","after":""\}\}/)
     expect(text).toMatch(/anchor_ambiguous: 2 matches\n  line 1: x/)
     expect(text).toMatch(/a\.ts:\n3  y▌/)
     expect(text).toMatch(/submit the whole batch again/)
@@ -113,7 +113,7 @@ describe("reports", () => {
                 { line: 31, context: "x = 2" },
               ],
             },
-            unplayed: [{ move: { before: "x", after: "" } }],
+            unplayed: [{ move: { line: 2, before: "x", after: "" } }],
           },
         ],
       }),

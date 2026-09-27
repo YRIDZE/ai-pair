@@ -1,7 +1,7 @@
 // The MCP tool definitions: schemas and the descriptions the agent reads at the point of use.
 
 import { z } from "zod"
-import { ACTION_KINDS, actionKinds, moveProblem } from "@ai-pair/protocol"
+import { ACTION_KINDS, actionKinds, moveProblem, type MoveTarget } from "@ai-pair/protocol"
 
 const nearLine = z
   .number()
@@ -31,28 +31,25 @@ const Action = z.union([
     move: z
       .strictObject({
         file: file.optional().describe("Switch to this file (created empty if it doesn't exist). Omit to stay in the current file."),
+        line: z
+          .number()
+          .int()
+          .describe(
+            "The line your cursor lands on, exactly, as your latest `read` or report shows it, counting the lines you've typed since. Required.",
+          ),
         before: z
           .string()
           .optional()
-          .describe("Exact text right before the spot; may span lines. Together with `after`, long enough to occur only once."),
+          .describe("Exact text right before the spot; may span lines. Together with `after`, long enough to occur only once on the line."),
         after: z.string().optional().describe("Exact text right after the spot. Either may be empty, not both."),
-        near_line: nearLine,
-        to: z
-          .enum(["end", "file_start", "file_end"])
-          .optional()
-          .describe("Instead of a spot. `end`: the end of your cursor's line. `file_end`: the end of the file's last line."),
-        lines: z
-          .number()
-          .int()
-          .optional()
-          .describe("Instead of a spot: this many lines down (negative: up) from your cursor, to the end of that line."),
+        to: z.enum(["end"]).optional().describe("Instead of a spot: `end`, the end of the line."),
       })
       .superRefine((m, ctx) => {
         const problem = moveProblem(m)
         if (problem) ctx.addIssue({ code: "custom", message: problem })
       })
       .describe(
-        "Move your cursor to one of: the spot between `before` and `after`, two texts that occur together (`before: \"import { \", after: \"type Context\"` lands right before `type Context`); `to`; or `lines`. With only `file`, the start of that file.",
+        "Move your cursor to `line`, to the spot between `before` and `after` on it, two texts that occur together (`line: 3, before: \"import { \", after: \"type Context\"` lands right before `type Context`), or to its end with `to: \"end\"`. The line must be exact: a spot that isn't on it is rejected. `read` the code first unless your latest report shows it.",
       ),
   }),
   action({
@@ -64,7 +61,7 @@ const Action = z.union([
   }),
   action({
     type: typeText.describe(
-      "`[before, after]`: types `before`, then `after`, at a human pace, then steps your cursor back to between them. Replaces the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Type left to right, except that what has an end gets its end first: when `before` opens a bracket, a quote or a block (however the language spells it: `{`, `begin`, `then`, `do`, a tag, a block comment), `after` is its end and nothing more. Fill it, step past its end (`to: \"end\"`, `lines: 1` for a block, or a spot), and type what follows there: `[\"if (\", \")\"]`, `[\"x < 0\", \"\"]`, `to: \"end\"`, `[\" {\\n    \", \"\\n  }\"]`, then the body; `[\"(\", \")\"]`, `[\"x + y\", \"\"]`, `to: \"end\"`, `[\" * SCALE;\", \"\"]`. `after` is `\"\"` when `before` opens nothing. Start new lines at the end of the line above, never where code follows on the line: it would slide right as you type. Separate definitions with one blank line, `[\"\\n\\n…\", …]` at the end of the one above, and leave one newline at the end of the file.",
+      "`[before, after]`: types `before`, then `after`, at a human pace, then steps your cursor back to between them. Replaces the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Type left to right, except that what has an end gets its end first: when `before` opens a bracket, a quote or a block (however the language spells it: `{`, `begin`, `then`, `do`, a tag, a block comment), `after` is its end and nothing more. Fill it, step past its end (a `move` to the end of its line, or to a spot right after it), and type what follows there: `[\"if (\", \")\"]`, `[\"x < 0\", \"\"]`, move to the line's end, `[\" {\\n    \", \"\\n  }\"]`, then the body; `[\"(\", \")\"]`, `[\"x + y\", \"\"]`, move to the line's end, `[\" * SCALE;\", \"\"]`. `after` is `\"\"` when `before` opens nothing. Start new lines at the end of the line above, never where code follows on the line: it would slide right as you type. Separate definitions with one blank line, `[\"\\n\\n…\", …]` at the end of the one above, and leave one newline at the end of the file.",
     ),
   }),
   action({
@@ -99,8 +96,13 @@ function action<T extends z.ZodRawShape>(shape: T) {
 function actionError(issue: { input?: unknown }): string | undefined {
   const input = issue.input
   if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined
-  if (actionKinds(input).length === 0) return `Not an action: each action has one of ${ACTION_KINDS.map((k) => `\`${k}\``).join(", ")}`
-  return combined(input)
+  const kinds = actionKinds(input)
+  if (kinds.length === 0) return `Not an action: each action has one of ${ACTION_KINDS.map((k) => `\`${k}\``).join(", ")}`
+  if (kinds.length > 1) return combined(input)
+  // A move without its line fails on the line's type, before `moveProblem` gets to say what's missing.
+  const move: unknown = "move" in input ? input.move : undefined
+  if (typeof move === "object" && move !== null) return moveProblem(move as MoveTarget)
+  return undefined
 }
 
 function combined(input: unknown): string | undefined {

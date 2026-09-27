@@ -63,13 +63,33 @@ export function resolveAnchor(text: string, anchor: Anchor): Resolution {
   }
 }
 
-/** Resolves a spot: the offset between `before` and `after`, which occur together. */
+/**
+ * Resolves a spot: the offset between `before` and `after`, which occur together, on `line`. The
+ * line is exact: a match elsewhere doesn't count, and is only listed, to show where the text is.
+ */
 export function resolveSpot(text: string, spot: Spot): Resolution {
   const before = unmarked(spot.before)
-  const r = resolveAnchor(text, { text: before + unmarked(spot.after), near_line: spot.near_line })
-  if (!r.ok) return r
-  const at = r.range.start + before.length
-  return { ok: true, range: { start: at, end: at } }
+  const whole = before + unmarked(spot.after)
+  const found = findAll(text, whole).map((start) => start + before.length)
+  const here = found.filter((at) => position(text, at).line === spot.line)
+  if (here.length === 1) return { ok: true, range: { start: here[0]!, end: here[0]! } }
+  if (here.length > 1) {
+    return {
+      ok: false,
+      kind: "anchor_ambiguous",
+      message: `${JSON.stringify(whole)} occurs ${here.length} times on line ${spot.line}; make \`before\` and \`after\` longer to be unique`,
+    }
+  }
+  const reads = `line ${spot.line} reads ${JSON.stringify(lineText(text, spot.line))}`
+  if (found.length === 0) {
+    return { ok: false, kind: "anchor_not_found", message: `Text not found: ${JSON.stringify(whole)}; ${reads}` }
+  }
+  return {
+    ok: false,
+    kind: "anchor_not_found",
+    message: `The spot isn't on line ${spot.line}: ${reads}. It's on these lines:`,
+    candidates: candidates(text, found),
+  }
 }
 
 /** Resolves a single anchor, or a from/to range: `to` is its first match after `from`. */

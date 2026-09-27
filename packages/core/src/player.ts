@@ -7,7 +7,7 @@ import { actionKinds, CURSOR_MARKER, moveProblem } from "@ai-pair/protocol"
 import { resolveSpan, resolveSpot, type Resolution } from "./anchors"
 import type { Config } from "./controller"
 import type { EditorPort, Focus, PanelPort } from "./ports"
-import { fileLines, isLineStart, lineEnd, position, splitLines } from "./text"
+import { fileLines, isLineStart, lineEnd, position } from "./text"
 import type { Pacing } from "./timeline"
 import { planTyping, readingTime } from "./typing"
 
@@ -262,21 +262,19 @@ export class Player {
       if (problem) return fail("invalid_action", problem)
       const file = m.file !== undefined ? this.resolvePath(m.file) : s.cursor?.file
       if (!file) return fail("no_file", "The agent cursor isn't in a file yet; give `file`.")
-      const relative = m.lines !== undefined || m.to === "end"
-      if (relative && s.cursor?.file !== file) {
-        return fail("no_file", "`lines` and `to: \"end\"` move relative to your cursor, in its file.")
-      }
       if (!(await this.delay(timing.beforeMoveMs))) return { kind: "interrupted" }
       await editor.show(file)
       const text = await editor.getText(file)
+      // An empty file has one line, the empty one; a newline at the end doesn't start another.
+      const lines = Math.max(1, fileLines(text).lines.length)
+      if (m.line > lines) {
+        const has = lines === 1 ? "1 line" : `${lines} lines`
+        return fail("anchor_not_found", `There's no line ${m.line}: ${this.displayPath(file)} has ${has}.`)
+      }
       let offset: number
-      if (relative) {
-        const line = position(text, s.cursor!.offset).line + (m.lines ?? 0)
-        offset = lineEnd(text, Math.max(1, Math.min(splitLines(text).length, line)))
-      } else if (m.to === "file_end") offset = lineEnd(text, fileLines(text).lines.length)
-      else if (m.before === undefined || m.after === undefined) offset = 0
+      if (m.to === "end") offset = lineEnd(text, m.line)
       else {
-        const r = resolveSpot(text, { before: m.before, after: m.after, near_line: m.near_line })
+        const r = resolveSpot(text, { before: m.before!, after: m.after!, line: m.line })
         if (!r.ok) return failed(r)
         offset = r.range.start
       }

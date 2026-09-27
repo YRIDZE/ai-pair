@@ -82,7 +82,7 @@ describe("relay", () => {
     expect(started.text).toMatch(/started/)
     expect(started.content[1]!.text).toContain("THE GUIDE")
 
-    const first = await call(client, "step", { actions: [{ move: { file: "a.ts" } }, { type: ["hi", ""] }] })
+    const first = await call(client, "step", { actions: [{ move: { file: "a.ts", line: 1, to: "end" } }, { type: ["hi", ""] }] })
     expect(first.text).toMatch(/Batch 1 is playing/)
     const second = await call(client, "step", { actions: [] })
     // Reports are text for the agent to read: check what they say, not how they're laid out.
@@ -106,12 +106,14 @@ describe("relay", () => {
     const bad = await call(client, "step", { actions: [{ typo: "x" }] })
     expect(bad.text).toMatch(/Not an action/)
     // Two actions in one object: zod would otherwise strip one of them silently.
-    const combined = await call(client, "step", { actions: [{ move: { to: "file_end" }, type: "x" }] })
+    const combined = await call(client, "step", { actions: [{ move: { line: 1, to: "end" }, type: "x" }] })
     expect(combined.text).toMatch(/One action per object, got `move` and `type`/)
-    const extra = await call(client, "step", { actions: [{ move: { to: "file_end", txt: "x" } }] })
+    const extra = await call(client, "step", { actions: [{ move: { line: 1, to: "end", txt: "x" } }] })
     expect(extra.error).toBe(true)
     expect(extra.text).toMatch(/txt/)
-    const half = await call(client, "step", { actions: [{ move: { before: "x" } }] })
+    const lineless = await call(client, "step", { actions: [{ move: { before: "x", after: "" } }] })
+    expect(lineless.text).toMatch(/Give the `line` to move to/)
+    const half = await call(client, "step", { actions: [{ move: { line: 1, before: "x" } }] })
     expect(half.text).toMatch(/both `before` and `after`/)
     const single = await call(client, "step", { actions: [{ type: "x" }] })
     expect(single.error).toBe(true)
@@ -130,7 +132,7 @@ describe("relay", () => {
   it("cancels a blocked call without losing the report, even when racing", async () => {
     const client = await connect()
     await call(client, "start")
-    await call(client, "step", { actions: [{ move: { file: "a.ts" } }] })
+    await call(client, "step", { actions: [{ move: { file: "a.ts", line: 1, to: "end" } }] })
     const abort = new AbortController()
     const listening = call(client, "listen", {}, abort.signal).catch((e: unknown) => e)
     await new Promise((r) => setTimeout(r, 50))
