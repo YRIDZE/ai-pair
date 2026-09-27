@@ -32,8 +32,8 @@ pair on…"). In Claude Code you can also run `/mcp__pair__start`.
 - **Interrupt:** the button, or just edit the code.
 - **Look around:** scrolling or switching files pauses playback. **Resume**
   brings you back.
-- **My turn / Your turn:** write a part yourself while the agent navigates.
-- **Slow / Normal / Fast:** the pace.
+- **My turn / Hand back:** write a part yourself while the agent navigates.
+- **The speed menu (1.0×):** the pace, from 0.4× to 3.0×.
 
 **AI Pair: Play Demo Session** shows what it's like without an agent.
 

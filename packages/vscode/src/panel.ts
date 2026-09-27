@@ -15,6 +15,9 @@ type FromPanel =
   | { type: "turn"; message?: string; attach?: boolean }
   | { type: "end" }
   | { type: "open"; file: string; line: number }
+  /** A file named in a message: a path, or just its name. */
+  | { type: "openFile"; file: string }
+  | { type: "openUrl"; url: string }
   | { type: "speed"; value: number }
   | { type: "runDecision"; id: number; run: boolean; remember?: boolean }
 
@@ -120,6 +123,39 @@ export class NarrationPanel implements PanelPort, vscode.WebviewViewProvider {
         void vscode.window.showTextDocument(uri, { selection: new vscode.Range(position, position) })
         return
       }
+      case "openFile":
+        void this.openByName(m.file)
+        return
+      case "openUrl":
+        if (/^https?:\/\//.test(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url))
+        return
     }
+  }
+
+  /** Opens a file the agent named: as a path in the workspace, else the file of that name, asking if there are several. */
+  private async openByName(name: string): Promise<void> {
+    const direct = vscode.Uri.file(this.resolvePath(name))
+    try {
+      await vscode.workspace.fs.stat(direct)
+      await vscode.window.showTextDocument(direct)
+      return
+    } catch {
+      // Not a path from the workspace's root: look for it by name.
+    }
+    const found = await vscode.workspace.findFiles(`**/${name}`, "**/node_modules/**", 20)
+    if (found.length === 0) {
+      void vscode.window.showInformationMessage(`AI Pair: couldn't find ${name} in the workspace.`)
+      return
+    }
+    let uri = found[0]!
+    if (found.length > 1) {
+      const picked = await vscode.window.showQuickPick(
+        found.map((u) => ({ label: vscode.workspace.asRelativePath(u), uri: u })),
+        { placeHolder: `Which ${name}?` },
+      )
+      if (!picked) return
+      uri = picked.uri
+    }
+    await vscode.window.showTextDocument(uri)
   }
 }

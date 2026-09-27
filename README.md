@@ -72,8 +72,8 @@ While you pair:
 | let it run a command | the agent's tests and builds play in an *AI Pair* terminal; **Run**, **Allow for session**, or **Skip** in the panel |
 | stop it right now | **Interrupt**, or just edit the code: any edit interrupts |
 | look around | scroll or switch files. Playback pauses until you **Resume**, which brings you back to the agent's cursor |
-| write a part yourself | **My turn**. The agent becomes the navigator and comments as you type. **Your turn** hands it back, with your reply if you typed one |
-| change the pace | **Slow / Normal / Fast** |
+| write a part yourself | **My turn**. The agent becomes the navigator and comments as you type. **Hand back** gives it the turn back, with your reply if you typed one |
+| change the pace | the speed menu (**1.0×**), from 0.4× to 3.0× |
 | finish | **End**, or tell the agent you're done |
 
 The cursor's color tells you what the agent is doing. It's yellow and pulsing
@@ -87,7 +87,7 @@ open folder.
 
 | Setting | |
 |---|---|
-| `aiPair.speed` | Overall playback speed (the panel's Slow / Normal / Fast set 0.6, 1, 1.6). |
+| `aiPair.speed` | Overall playback speed (the panel's speed menu offers 0.4× to 3.0×). |
 | `aiPair.agentName` | The name on the agent's cursor. |
 | `aiPair.timing` | Fine-tune any typing or pause duration, e.g. `{ "afterSelectMs": 900, "type": { "wordStartMs": 140 } }`. Every key is in [`timing.ts`](packages/core/src/timing.ts). |
 | `aiPair.confirmCommands` | Ask before each command the agent runs in the terminal (default on). Off means the agent's `run` skips the harness's permission prompt. |

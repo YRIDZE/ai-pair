@@ -40,22 +40,34 @@ highly visible and nothing in the panel may move unexpectedly.
 
 Layout, top to bottom:
 
-1. **Controls and reply box.** A status line of its own (so its changing text
-   never moves anything), then Pause/Resume, Interrupt, My turn / Your turn,
-   End. The status line also holds the Slow / Normal / Fast toggle,
-   right-aligned so the status text never moves it. The reply box is slim and
-   low-contrast until focused, so it doesn't compete with the message. These
-   sit above the message so their position never changes.
-2. **Current message.** Large text (≈1.4× the editor font, *tunable*), high
-   contrast. Its **top edge is fixed**; its height grows downward with the
-   message length. A new message briefly flashes in, in sync with the cursor's
-   read state.
-3. **Reading-pause bar** along the bottom edge of the current message. It fills
-   during the reading pause, so the pause feels intentional, and is hidden
-   otherwise.
-4. **History**, newest first, in smaller, muted text. Besides the agent's
-   messages it shows the programmer's replies, turn changes, interrupts, and
-   changes made outside the protocol. File references are clickable.
+1. **The card**, holding everything about now:
+   - **Its header**: the agent's state (a colored dot and a few words: *Agent
+     is typing*, *Read this*, *Needs you*, *Your turn · navigating*), and the
+     controls, compact and quiet: Pause/Resume, Interrupt, My turn / Hand
+     back, the speed, End. During the programmer's turn, Pause and Interrupt
+     give way to Hand back. The speed opens a menu of 0.4× to 3.0×.
+   - **The current message**, in large text (≈1.45× the editor font,
+     *tunable*), high contrast. Its **top edge is fixed**, right under the
+     header; its height grows downward with the message length. A new message
+     briefly flashes the card, in sync with the cursor's read state. The code
+     the agent pointed at before it is linked under it.
+   - **The reading-pause bar** under the message. It fills during the reading
+     pause, so the pause feels intentional, and is hidden otherwise.
+   - **A command to allow**, when the agent plays a `run` (see Commands).
+   - **The reply box**, joined to the card's bottom. It's where the eye goes
+     after reading, which is when the programmer replies. The card has a
+     minimum height, so the reply box moves only for a long message.
+2. **History**, below the card, newest first. The agent's messages in muted
+   text, under an *Agent* label for each run of them; the programmer's
+   replies as bubbles on the right; commands as terminal rows with their
+   outcome (✓ exit 0, ✕ exit 1, skipped, still running); turn changes,
+   interrupts and session starts and ends as dividers.
+
+Without a session, the card says so and how to start one, and after a
+session, how it ended, with the agent's summary; the controls and the reply
+box are hidden. In every message, code spans that name a file (`game.ts`,
+`src/server.ts`) open it, found by name if it isn't a path from the
+workspace's root, and URLs open in the browser.
 
 Behavior:
 
@@ -64,24 +76,28 @@ Behavior:
   event (which interrupts) and ends any pause, so the agent's answer plays
   right away. (Pausing on focus alone would leave playback paused after
   sending, while the box still has focus.)
-- With text in the reply box, "Your turn" hands back the turn with it as the
+- With text in the reply box, "Hand back" hands back the turn with it as the
   message.
 - **Sharing a selection.** While the programmer has code selected in the
-  editor, a line under the reply box says *With selection
-  `src/server.ts:12–18`*: the reply (or "Your turn") takes the selection
+  editor, a line above the reply box says *With selection
+  `src/server.ts:12–18`*: the reply (or "Hand back") takes the selection
   along. × leaves it out; the next selection brings the line back. The
   selection is sent once. *Ask the Agent About the Selection* in the editor's
   context menu focuses the reply box.
-- **Commands.** When the agent plays a `run`, a box under the current message
-  shows the command with **Run**, **Allow for session** (the same command
+- **Commands.** When the agent plays a `run`, the card shows the command under
+  the current message, with **Run**, **Allow for session** (the same command
   won't ask again until the session ends) and **Skip** (unless
-  `aiPair.confirmCommands` is off), with the cursor in its read state. The
+  `aiPair.confirmCommands` is off), with the cursor in its read state and the
+  status *Needs you*. The
   command then runs in an *AI Pair* terminal, revealed without taking focus,
   and the history records its exit code.
+- **Space pauses and resumes** while the panel has focus, except in the reply
+  box. It never presses the focused button (after a click, that could be
+  End); Enter still does.
 - The command *AI Pair: Reply to the Agent* focuses the reply box from the
   editor; bind it to a key of your choice.
-- During the programmer's turn the panel shows "Your turn" prominently; the
-  agent's comments appear as the current message as usual.
+- During the programmer's turn the card's header says *Your turn ·
+  navigating*; the agent's comments appear as the current message as usual.
 
 ## Playback
 
@@ -130,8 +146,9 @@ is already in place and there's no pause.
 **Reading.** After a `say`: `clamp(words × 180, 1000, 6000)`. Enough to read
 most of the message, not all of it.
 
-**Speed.** The panel's Slow / Normal / Fast (0.6×, 1×, 1.6×) scales all of it
-together, immediately, even mid-typing. It's the `aiPair.speed` setting.
+**Speed.** The panel's speed menu (0.4×, 0.6×, 1.0×, 1.5×, 2.0×, 3.0×) scales
+all of it together, immediately, even mid-typing. It's the `aiPair.speed`
+setting, which takes any value from 0.25 to 4.
 
 ### Undo
 
