@@ -7,7 +7,7 @@ const nearLine = z
   .number()
   .int()
   .optional()
-  .describe("Only if the text still occurs more than once: take the match closest to this line.")
+  .describe("The line the text starts at, from your latest `read` or report. Give it whenever you know it: of several matches, the one closest to it is taken.")
 const Anchor = z.strictObject({
   text: z.string().describe("Exact text; may span lines. Long enough to occur only once, e.g. a whole line."),
   near_line: nearLine,
@@ -40,7 +40,7 @@ const Action = z.union([
         to: z
           .enum(["end", "file_start", "file_end"])
           .optional()
-          .describe("Instead of a spot. `end`: the end of your cursor's line."),
+          .describe("Instead of a spot. `end`: the end of your cursor's line. `file_end`: the end of the file's last line."),
         lines: z
           .number()
           .int()
@@ -64,12 +64,12 @@ const Action = z.union([
   }),
   action({
     type: typeText.describe(
-      "`[before, after]`: types `before`, then `after`, at a human pace, then steps your cursor back to between them, ready for what goes inside. Replaces the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Every pair is typed with both its ends first, then filled from inside: `[\"update(\", \")\"]` then `[\"ctx, dt\", \"\"]`; `[\"for (\", \") {\\n}\"]` then the condition, then `move: { to: \"end\" }` and the body; `[\"'\", \"'\"]` then the string's text; `[\"[\", \"]\"]`; `[\"/* \", \" */\"]`. That goes for every block, object, array, index, call, parameter list, header, string, tag and block comment, however short, in boilerplate and config too. Fill a pair right after typing it, before anything else, then step past its closing part: `to: \"end\"` if it ends your line, `lines: 1` if it's on the line below. `after` is `\"\"` only when the text opens nothing that needs closing. Type new lines into an empty line, never where code follows on the same line: that code would slide right as you type, a bad experience for the programmer watching. At a line's end, `[\"\\n\", \"\"]` makes one below it; at the start of a line's text, `[\"\", \"\\n    \"]`, with the line's indentation, makes one above it; a block separated from the code below by a blank line gets that blank line first: `[\"\\n\\n\", \"\\n\"]` at a line's end, `[\"\", \"\\n\\n    \"]` at the start of one.",
+      "`[before, after]`: types `before`, then `after`, at a human pace, then steps your cursor back to between them. Replaces the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. Type left to right, except that what has an end gets its end first: when `before` opens a bracket, a quote or a block (however the language spells it: `{`, `begin`, `then`, `do`, a tag, a block comment), `after` is its end and nothing more. Fill it, step past its end (`to: \"end\"`, `lines: 1` for a block, or a spot), and type what follows there: `[\"if (\", \")\"]`, `[\"x < 0\", \"\"]`, `to: \"end\"`, `[\" {\\n    \", \"\\n  }\"]`, then the body; `[\"(\", \")\"]`, `[\"x + y\", \"\"]`, `to: \"end\"`, `[\" * SCALE;\", \"\"]`. `after` is `\"\"` when `before` opens nothing. Start new lines at the end of the line above, never where code follows on the line: it would slide right as you type. Separate definitions with one blank line, `[\"\\n\\n…\", …]` at the end of the one above, and leave one newline at the end of the file.",
     ),
   }),
   action({
     type_fast: typeText.describe(
-      "Like `type`, several times faster, for text the programmer doesn't need to read: imports, config, boilerplate. Only the speed changes: every pair is still typed with both its ends first, then filled.",
+      "Like `type`, several times faster, for text the programmer doesn't need to read: imports, config, boilerplate. Only the speed changes: ends still come first.",
     ),
   }),
   action({ delete: z.literal(true).describe("Delete the current selection; `select` first.") }),
@@ -146,7 +146,7 @@ An empty batch waits for your queued batches without waiting for the programmer.
   },
   read: {
     description:
-      "Read a file as it is in the programmer's editor, including unsaved changes and everything you've typed so far. Prefer this over your own file tools for files the programmer may have touched during the session. Lines are numbered from 1; it says where the file ends, and whether a newline ends its last line.",
+      "Read a file as it is in the programmer's editor, including unsaved changes and everything you've typed so far. Read the part of a file you're about to work in before you move there, and copy anchors and line numbers from it: don't guess them. Prefer this over your own file tools during the session. Lines are numbered from 1; it says where the file ends, and whether a newline ends its last line.",
     inputSchema: {
       file,
       from_line: z.number().int().optional(),

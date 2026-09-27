@@ -246,7 +246,8 @@ in the current file. Clears any selection. The cursor goes to one of:
   `{ before: "import { ", after: "type Context" }` lands right before
   `type Context`.
 - `to: "end"`: the end of the cursor's line.
-- `to: "file_start"` or `"file_end"`.
+- `to: "file_start"`, or `to: "file_end"`: the end of the file's last line,
+  before the newline that ends it, if there is one.
 - `lines: n`: n lines down (negative: up) from the agent cursor, to the end of
   that line, like arrow keys.
 
@@ -263,7 +264,7 @@ The cursor ends at the end of the selection.
 
 Types `[before, after]` at the agent cursor, replacing the selection if there
 is one: first `before`, then `after`, then the cursor steps back to between
-them. It's how a pair is typed with both its ends before its contents:
+them. It's how something with an end is typed with its end before its contents:
 
 ```jsonc
 { "type": ["update(", ")"] }   // update(|)

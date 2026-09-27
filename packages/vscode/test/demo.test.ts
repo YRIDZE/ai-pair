@@ -23,11 +23,11 @@ it("plays through, typing the todos API", async () => {
   const report = await until(controller.step([]))
   expect(report.batches.filter((b) => b.status !== "completed")).toEqual([])
 
-  expect(editor.text(TODOS)).toBe(`export type Todo = {
+  expect(editor.text(TODOS)).toBe(`export interface Todo {
   id: number;
   title: string;
   done: boolean;
-};
+}
 
 const todos: Todo[] = [];
 let nextId = 1;

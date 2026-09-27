@@ -273,7 +273,7 @@ export class Player {
       if (relative) {
         const line = position(text, s.cursor!.offset).line + (m.lines ?? 0)
         offset = lineEnd(text, Math.max(1, Math.min(splitLines(text).length, line)))
-      } else if (m.to === "file_end") offset = text.length
+      } else if (m.to === "file_end") offset = lineEnd(text, fileLines(text).lines.length)
       else if (m.before === undefined || m.after === undefined) offset = 0
       else {
         const r = resolveSpot(text, { before: m.before, after: m.after, near_line: m.near_line })

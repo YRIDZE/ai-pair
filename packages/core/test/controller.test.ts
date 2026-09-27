@@ -121,6 +121,19 @@ describe("editing", () => {
     expect(editor.text("a.ts")).toBe("a!\n\nnew\n\nb\n")
   })
 
+  it("moves to the end of the last line with `file_end`, before the final newline", async () => {
+    const { editor, controller } = setup({ "a.ts": "a\n", "b.ts": "b", "c.ts": "c\r\n", "d.ts": "" })
+    await controller.start()
+    for (const file of ["a.ts", "b.ts", "c.ts", "d.ts"]) {
+      await until(controller.step([{ move: { file, to: "file_end" } }, { type: ["\n\nx", ""] }]))
+    }
+    await until(controller.step([]))
+    expect(editor.text("a.ts")).toBe("a\n\nx\n")
+    expect(editor.text("b.ts")).toBe("b\n\nx")
+    expect(editor.text("c.ts")).toBe("c\n\nx\r\n")
+    expect(editor.text("d.ts")).toBe("\n\nx")
+  })
+
   it("types both parts of a pair, then steps back between them, in one undo stop", async () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
@@ -250,17 +263,16 @@ describe("rehearsal", () => {
           message: expect.any(String),
           candidates: [
             { line: 1, context: "x" },
-            { line: 2, context: "x" },
+            { line: 2, context: "xy" },
           ],
         },
         code: {
           file: "a.ts",
           lines: [
             { number: 1, text: "x" },
-            { number: 2, text: "x" },
-            { number: 3, text: "y▌" },
+            { number: 2, text: "xy▌" },
           ],
-          end: { final_newline: false },
+          end: { final_newline: true },
         },
       },
     })
@@ -336,7 +348,7 @@ describe("pointing", () => {
     await until(controller.step([{ type: ["x", ""] }]))
     await until(controller.step([]))
     expect(editor.shown).toEqual([editor.resolvePath("a.ts"), editor.resolvePath("b.ts"), editor.resolvePath("a.ts")])
-    expect(editor.text("a.ts")).toBe("a\nx")
+    expect(editor.text("a.ts")).toBe("ax\n")
   })
 
   it("leaves the view alone during the programmer's turn", async () => {
@@ -407,7 +419,7 @@ describe("reports", () => {
       ],
       end: { final_newline: true },
     })
-    const missing = await until(controller.step([{ move: { file: "a.ts", to: "file_end" } }]))
+    const missing = await until(controller.step([{ move: { file: "a.ts", before: "a\n\n", after: "" } }]))
     expect(missing.batches[0]!.code).toEqual({
       file: "b.ts",
       lines: [
@@ -572,7 +584,7 @@ describe("interruptions", () => {
       { kind: "edit", file: "package.json", diff: expect.stringContaining('+{"x": 1}'), by: "other" },
     ])
     await until(controller.step([]))
-    expect(editor.text("a.ts")).toBe("// formatted\nhello\nabcd")
+    expect(editor.text("a.ts")).toBe("// formatted\nhelloabcd\n")
 
     const listening = track(controller.listen())
     editor.otherEdit("package.json", 0, 0, " ")
