@@ -1,7 +1,9 @@
 // Runs inside a real VS Code (see scripts/integration.sh): plays the demo and checks the result,
-// then checks that a programmer edit interrupts the agent with an exact report.
+// then that changes the programmer didn't make don't interrupt the agent, and that a programmer edit
+// does, with an exact report.
 
 import * as assert from "node:assert/strict"
+import * as fs from "node:fs"
 import * as path from "node:path"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
@@ -67,9 +69,40 @@ export async function run(): Promise<void> {
   assert.equal(await buffer("ai-pair-demo/src/server.ts"), EXPECTED_SERVER)
   assert.equal(await disk("ai-pair-demo/src/server.ts"), EXPECTED_SERVER, "saved after each batch")
 
-  // A programmer edit mid-typing interrupts, and the report shows exactly what was typed.
+  // Changes the programmer didn't make are reported, without interrupting: a tool writing to disk...
   const c = api.controller
   c.setSpeed(1)
+  const until = async (done: () => boolean) => {
+    for (let i = 0; i < 100 && !done(); i++) await sleep(50)
+    assert.ok(done(), "timed out")
+  }
+  fs.writeFileSync(file("other.txt"), "before\n")
+  const other = await vscode.workspace.openTextDocument(file("other.txt"))
+  await c.start("other edits")
+  await c.step([{ move: { file: "tool.txt" } }, { type_fast: ["x".repeat(200), ""] }])
+  const queued = c.step([{ type: ["abc", ""] }])
+  await sleep(1500)
+  fs.writeFileSync(file("other.txt"), "after\n")
+  await until(() => other.getText() === "after\n")
+  const first = await queued
+  assert.deepEqual(first.batches.map((b) => b.status), ["completed"])
+  assert.deepEqual(first.events, [{ kind: "edit", file: "other.txt", diff: "@@ -1,1 +1,1 @@\n-before\n+after", by: "other" }])
+  const toolDone = await c.step([])
+  assert.deepEqual(toolDone.batches.map((b) => b.status), ["completed"])
+
+  // ...and a save participant, trimming what the agent typed when its batch is saved.
+  await vscode.workspace.getConfiguration("files").update("trimTrailingWhitespace", true, vscode.ConfigurationTarget.Global)
+  await c.step([{ type: ["\nend   ", ""] }])
+  const trimmed = await c.step([{ type: ["!", ""] }])
+  const trimDone = await c.step([])
+  await vscode.workspace.getConfiguration("files").update("trimTrailingWhitespace", undefined, vscode.ConfigurationTarget.Global)
+  assert.deepEqual([...trimmed.batches, ...trimDone.batches].map((b) => b.status), ["completed", "completed"])
+  assert.deepEqual([...trimmed.events, ...trimDone.events].map((e) => e.kind === "edit" && `${e.file} ${e.by}`), ["tool.txt other"])
+  assert.ok((await buffer("tool.txt")).endsWith("abc\nend!"))
+  await c.end()
+  console.log("changes by others don't interrupt")
+
+  // A programmer edit mid-typing interrupts, and the report shows exactly what was typed.
   const alphabet = "abcdefghijklmnopqrstuvwxyz"
   await c.start("interrupt test")
   await c.step([{ move: { file: "scratch.ts" } }, { type: [alphabet, ""] }])

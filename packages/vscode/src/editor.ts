@@ -1,5 +1,6 @@
 // The EditorPort for VS Code: documents, edits, the agent cursor, follow mode.
 
+import * as fs from "node:fs"
 import * as path from "node:path"
 import * as vscode from "vscode"
 import { samePath, withinFolder } from "@ai-pair/core"
@@ -63,6 +64,8 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
   private readonly terminals = new PairTerminals()
   private readonly mirror = new Map<string, string>()
   private readonly own = new Map<string, OwnEdit[]>()
+  /** Files we're saving: changes to them meanwhile are by save participants, like format on save. */
+  private readonly saving = new Set<string>()
   private cursor: CursorView | null = null
   private state: AgentState = "thinking"
   private point: { file: string; start: number; end: number } | null = null
@@ -201,7 +204,14 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
   }
 
   async save(file: string): Promise<void> {
-    await this.openDocument(file)?.save()
+    const doc = this.openDocument(file)
+    if (!doc) return
+    this.saving.add(file)
+    try {
+      await doc.save()
+    } finally {
+      this.saving.delete(file)
+    }
   }
 
   renderCursor(cursor: CursorView | null, state: AgentState, focus: Focus): void {
@@ -300,7 +310,27 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
     }
 
     if (before === undefined || !this.inWorkspace(file)) return
-    this.controller?.userEdit(file, before, after, changes)
+    if (this.byProgrammer(e, after)) this.controller?.userEdit(file, before, after, changes)
+    else this.controller?.otherEdit(file, before, after, changes)
+  }
+
+  /**
+   * VS Code doesn't say who made a change, but two kinds aren't the programmer's. Edits by save
+   * participants (format on save, trimming whitespace) while we save; those of the programmer's own
+   * saves arrive before any event says a save has begun, so they count as theirs. And a reload from
+   * disk: it leaves a clean document (`isDirty` is still as it was before the change) reading
+   * exactly what's on disk, which typing into a clean document never does. Anything unsure counts as
+   * the programmer's, so it interrupts.
+   */
+  private byProgrammer(e: vscode.TextDocumentChangeEvent, after: string): boolean {
+    const file = e.document.uri.fsPath
+    if (this.saving.has(file)) return false
+    if (e.reason !== undefined || e.document.isDirty) return true
+    try {
+      return fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "") !== after
+    } catch {
+      return true
+    }
   }
 
   // Looking away from what the view follows pauses playback: the cursor, or the code it points at.

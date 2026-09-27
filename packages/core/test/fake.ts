@@ -105,11 +105,22 @@ export class FakeEditor implements EditorPort {
 
   /** The programmer types into a file. */
   userEdit(name: string, offset: number, deleteLength: number, text: string): void {
+    this.change("programmer", name, offset, deleteLength, text)
+  }
+
+  /** Something other than the programmer changes a file: a tool, a formatter. */
+  otherEdit(name: string, offset: number, deleteLength: number, text: string): void {
+    this.change("other", name, offset, deleteLength, text)
+  }
+
+  private change(by: "programmer" | "other", name: string, offset: number, deleteLength: number, text: string): void {
     const file = this.resolvePath(name)
     const before = this.files.get(file) ?? ""
     const after = before.slice(0, offset) + text + before.slice(offset + deleteLength)
     this.files.set(file, after)
-    this.controller.userEdit(file, before, after, [{ offset, deleteLength, text }])
+    const changes = [{ offset, deleteLength, text }]
+    if (by === "programmer") this.controller.userEdit(file, before, after, changes)
+    else this.controller.otherEdit(file, before, after, changes)
   }
 
   text(name: string): string {

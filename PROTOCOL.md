@@ -478,7 +478,7 @@ type Code = {                 // the cursor marked with ▌ in its line
 ```ts
 type Event =
   | { kind: "message", text: string, selection?: Excerpt }
-  | { kind: "edit", file: string, diff: string }
+  | { kind: "edit", file: string, diff: string, by: "programmer" | "other" }
   | { kind: "interrupt" }
   | { kind: "turn", to: "agent" | "user", message?: string, selection?: Excerpt }
   | { kind: "end" }
@@ -494,7 +494,8 @@ type Excerpt = {              // code the programmer had selected
 
 During the agent's turn, **every event interrupts**: it stops playback and
 triggers the no-stale-plans rule. This includes any edit by the programmer,
-anywhere. (A finer rule, such as only edits near the agent cursor, may come
+anywhere. The one exception is a change the programmer didn't make (an edit
+`by: "other"`): it's reported, without interrupting. (A finer rule, such as only edits near the agent cursor, may come
 later.)
 
 - `message`: the programmer sent a message from the narration panel. If they
@@ -502,8 +503,11 @@ later.)
   dismissed it in the panel: "what does this do?" is about that code.
 - `interrupt`: the Interrupt button.
 - `turn`: see [Turns](#turns).
-- `edit`: the programmer changed a file. Edits are coalesced per file into a
-  single diff per report.
+- `edit`: a file changed. Edits are coalesced per file into a single diff per
+  report. `by` says whether the programmer made them, or something else did: a
+  tool or a command writing to disk (including the agent's own), or a
+  formatter when the file is saved. A diff with any edit by the programmer is
+  theirs. Changes by others don't interrupt, and don't make `listen` return.
 - `end`: the programmer ended the session. Playback stops and the session is
   over: this is its final report, and further calls fail with `no_session`.
 

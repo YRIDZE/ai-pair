@@ -126,7 +126,8 @@ export type Excerpt = {
 
 export type Event =
   | { kind: "message"; text: string; selection?: Excerpt }
-  | { kind: "edit"; file: string; diff: string }
+  /** `other`: not by the programmer, but by a tool, a formatter, or on disk. Only the programmer's interrupt. */
+  | { kind: "edit"; file: string; diff: string; by: "programmer" | "other" }
   | { kind: "interrupt" }
   | { kind: "turn"; to: Turn; message?: string; selection?: Excerpt }
   | { kind: "end" }

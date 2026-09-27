@@ -44,7 +44,14 @@ type Batch = {
 }
 
 /** Like `Event`, but edits usually get their diff when the report is taken. */
-type PendingEvent = Exclude<Event, { kind: "edit" }> | { kind: "edit"; file: string; diff?: string }
+type PendingEvent = Exclude<Event, { kind: "edit" }> | EditEvent
+
+type EditEvent = { kind: "edit"; file: string; by: "programmer" | "other"; diff?: string }
+
+/** Everything interrupts, except changes the programmer didn't make. */
+function interrupting(e: PendingEvent): boolean {
+  return e.kind !== "edit" || e.by === "programmer"
+}
 
 type Session = {
   task?: string
@@ -208,7 +215,7 @@ export class Controller {
     if (!s) return
     s.finished.unshift(...report.batches)
     s.events.unshift(...report.events)
-    if (report.events.length > 0 || report.batches.some((b) => b.status !== "completed")) s.stale = true
+    if (report.events.some(interrupting) || report.batches.some((b) => b.status !== "completed")) s.stale = true
     this.update()
   }
 
@@ -237,12 +244,7 @@ export class Controller {
   userEdit(file: string, before: string, after: string, changes: Change[]): void {
     const s = this.activeSession()
     if (!s) return
-    for (const change of changes) s.player.transform(file, change)
-    if (!s.baselines.has(file)) {
-      s.baselines.set(file, before)
-      s.events.push({ kind: "edit", file })
-    }
-    s.latest.set(file, after)
+    this.recordEdit(s, file, before, after, changes, "programmer")
     if (s.scene.turn === "agent") {
       this.interrupt(s)
     } else {
@@ -253,6 +255,27 @@ export class Controller {
       }, this.config.navigatorIdleMs)
     }
     this.update()
+  }
+
+  /** A change the programmer didn't make: by a tool, a formatter, or on disk. Reported, without interrupting. */
+  otherEdit(file: string, before: string, after: string, changes: Change[]): void {
+    const s = this.activeSession()
+    if (!s) return
+    this.recordEdit(s, file, before, after, changes, "other")
+    this.update()
+  }
+
+  /** Edits to a file are reported as one diff, as the programmer's if any of them was. */
+  private recordEdit(s: Session, file: string, before: string, after: string, changes: Change[], by: EditEvent["by"]): void {
+    for (const change of changes) s.player.transform(file, change)
+    if (!s.baselines.has(file)) {
+      s.baselines.set(file, before)
+      s.events.push({ kind: "edit", file, by })
+    } else if (by === "programmer") {
+      const pending = s.events.find((e): e is EditEvent => e.kind === "edit" && e.file === file && e.diff === undefined)
+      if (pending) pending.by = "programmer"
+    }
+    s.latest.set(file, after)
   }
 
   takeTurn(): void {
@@ -482,8 +505,9 @@ export class Controller {
       case "listen":
         if (s.finished.some((r) => r.status !== "completed")) return true
         if (s.queue.length > 0) return false
-        if (s.scene.turn === "agent") return s.events.length > 0
-        return s.events.some((e) => e.kind !== "edit") || (s.navigatorReady && s.events.length > 0)
+        if (s.scene.turn === "agent") return s.events.some(interrupting)
+        // The programmer's edits during their turn wait until they pause typing.
+        return s.events.some((e) => e.kind !== "edit") || (s.navigatorReady && s.events.some(interrupting))
     }
   }
 
@@ -541,14 +565,14 @@ export class Controller {
         continue
       }
       if (e.diff !== undefined) {
-        events.push({ kind: "edit", file: e.file, diff: e.diff })
+        events.push({ kind: "edit", file: e.file, diff: e.diff, by: e.by })
         continue
       }
       const before = s.baselines.get(e.file) ?? ""
       const after = s.latest.get(e.file) ?? before
       if (before === after) continue
       const file = this.displayPath(s, e.file)
-      events.push({ kind: "edit", file, diff: fileDiff(file, before, after) })
+      events.push({ kind: "edit", file, diff: fileDiff(file, before, after), by: e.by })
     }
     s.finished = []
     s.events = []

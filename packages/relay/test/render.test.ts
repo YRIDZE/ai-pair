@@ -46,6 +46,20 @@ describe("reports", () => {
     expect(text).toMatch(/submit the whole batch again/)
   })
 
+  it("says whether the programmer made an edit, or something else did", () => {
+    const text = renderReport(
+      report({
+        events: [
+          { kind: "edit", file: "a.ts", diff: "@@ -1 +1 @@\n-a\n+b", by: "programmer" },
+          { kind: "edit", file: "package.json", diff: "@@ -1 +1 @@\n-{}\n+{ }", by: "other" },
+        ],
+      }),
+      "listen",
+    )
+    expect(text).toMatch(/The programmer edited a\.ts:\n@@/)
+    expect(text).toMatch(/package\.json was changed, not by the programmer.*:\n@@/)
+  })
+
   it("shows gaps in long code", () => {
     const lines = [1, 2, 58, 59].map((number) => ({ number, text: `line ${number}` }))
     const text = renderReport(report({ batches: [{ id: 1, status: "completed", code: { file: "a.ts", lines } }] }), "step")

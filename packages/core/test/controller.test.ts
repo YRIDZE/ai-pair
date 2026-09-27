@@ -493,9 +493,48 @@ describe("interruptions", () => {
 
     editor.userEdit("a.ts", 0, 0, "XX")
     const report = await until(listen)
-    expect(report.events).toEqual([{ kind: "edit", file: "a.ts", diff: expect.stringContaining("+XXhello") }])
+    expect(report.events).toEqual([{ kind: "edit", file: "a.ts", diff: expect.stringContaining("+XXhello"), by: "programmer" }])
     // The batch's code showed the cursor before the edit, so the report shows where it is now.
     expect(report.cursor).toEqual({ file: "a.ts", lines: [{ number: 1, text: "XXhello▌" }] })
+  })
+
+  it("reports changes the programmer didn't make without interrupting, or waking `listen`", async () => {
+    const { editor, controller } = setup({ "a.ts": "hello\n", "package.json": "{}\n" })
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts", to: "file_end" } }, { type: ["abc", ""] }])
+    await advance(200)
+    editor.otherEdit("a.ts", 0, 0, "// formatted\n")
+    editor.otherEdit("package.json", 1, 0, '"x": 1')
+
+    const report = await until(controller.step([{ type: ["d", ""] }]))
+    expect(report.batches).toMatchObject([{ id: 1, status: "completed" }])
+    expect(report.events).toEqual([
+      { kind: "edit", file: "a.ts", diff: expect.stringContaining("+// formatted"), by: "other" },
+      { kind: "edit", file: "package.json", diff: expect.stringContaining('+{"x": 1}'), by: "other" },
+    ])
+    await until(controller.step([]))
+    expect(editor.text("a.ts")).toBe("// formatted\nhello\nabcd")
+
+    const listening = track(controller.listen())
+    editor.otherEdit("package.json", 0, 0, " ")
+    await advance(5000)
+    expect(listening.done).toBe(false)
+    editor.userEdit("a.ts", 0, 0, "!")
+    await advance(10)
+    expect(listening.value!.events).toMatchObject([
+      { kind: "edit", file: "package.json", by: "other" },
+      { kind: "edit", file: "a.ts", by: "programmer" },
+    ])
+  })
+
+  it("reports a file's edits as the programmer's if any of them was", async () => {
+    const { editor, controller } = setup({ "a.ts": "hello\n" })
+    await controller.start()
+    const listen = controller.listen()
+    editor.otherEdit("a.ts", 0, 0, "A")
+    editor.userEdit("a.ts", 0, 0, "B")
+    const report = await until(listen)
+    expect(report.events).toEqual([{ kind: "edit", file: "a.ts", diff: expect.stringContaining("+BAhello"), by: "programmer" }])
   })
 })
 
@@ -525,7 +564,9 @@ describe("turns", () => {
     expect(following.done).toBe(false)
     await advance(600)
     expect(following.done).toBe(true)
-    expect(following.value!.events).toEqual([{ kind: "edit", file: "a.ts", diff: expect.stringContaining("+for (i < n)") }])
+    expect(following.value!.events).toEqual([
+      { kind: "edit", file: "a.ts", diff: expect.stringContaining("+for (i < n)"), by: "programmer" },
+    ])
 
     const handedBack = track(controller.listen())
     controller.handBack("finish it")
