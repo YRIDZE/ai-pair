@@ -158,7 +158,8 @@ During the agent's turn:
 
 ### Saving
 
-Files edited through the protocol are saved when a batch completes.
+Files edited through the protocol are saved when a batch ends, and before a
+command the batch runs, so the command sees them.
 
 ## Changes outside the protocol
 

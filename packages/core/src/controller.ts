@@ -607,14 +607,7 @@ export class Controller {
         if (!batch) break
         this.startHead(s)
         this.render()
-        const { result, touched } = await s.player.play(batch.id, batch.actions)
-        for (const file of touched) {
-          try {
-            await this.editor.save(file)
-          } catch {
-            // Saving is best effort; the buffer is still the truth.
-          }
-        }
+        const result = await s.player.play(batch.id, batch.actions)
         if (this.session !== s) break
         batch.state = "done"
         batch.result = result

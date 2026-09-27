@@ -37,7 +37,7 @@ export async function rehearse(
     render: () => {},
     confirm: () => Promise.resolve(true),
   })
-  const { result } = await player.play(0, actions)
+  const result = await player.play(0, actions)
   return { result, after: { scene, texts: memory.texts } }
 }
 

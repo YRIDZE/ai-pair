@@ -75,7 +75,8 @@ export class FakeEditor implements EditorPort {
     this.reveals++
   }
 
-  commands: { command: string; options: RunOptions }[] = []
+  /** `unsaved`: the files with unsaved changes when the command started. */
+  commands: { command: string; options: RunOptions; unsaved: string[] }[] = []
   /**
    * How each command behaves: its terminal takes `startMs` to get ready, then the command takes `ms`
    * and exits with `exitCode`, having printed `output`.
@@ -90,7 +91,7 @@ export class FakeEditor implements EditorPort {
       })
       if (options.signal.aborted) return { output: "", notStarted: true }
     }
-    this.commands.push({ command, options })
+    this.commands.push({ command, options, unsaved: [...this.dirty] })
     const output = script.output ?? ""
     const finished = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(script.ms <= options.waitMs), Math.min(script.ms, options.waitMs))

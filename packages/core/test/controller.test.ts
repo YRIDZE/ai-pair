@@ -702,6 +702,15 @@ describe("run", () => {
     ])
   })
 
+  it("saves what the batch has typed before running a command, so the command reads it from disk", async () => {
+    const { editor, controller } = setup({ "a.ts": "" }, { confirmCommands: false })
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts" } }, { type: ["x", ""] }, { run: "tsc" }])
+    await until(controller.step([]))
+    expect(editor.commands).toMatchObject([{ command: "tsc", unsaved: [] }])
+    expect(editor.saved).toContain(editor.resolvePath("a.ts"))
+  })
+
   it("leaves a long-running command running after `wait`", async () => {
     const { editor, controller } = setup({}, { confirmCommands: false })
     editor.commandScript["npm start"] = { ms: 1_000_000, output: "listening on 3000" }

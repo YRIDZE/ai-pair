@@ -531,8 +531,8 @@ message). The agent receives the programmer's edits since the last report and
 ## Files, saving, and native tools
 
 - Files the agent edits via the protocol are **saved automatically** when a
-  batch completes, so that tools reading from disk (tests, compilers, the
-  agent's native file tools) see the current state.
+  batch ends, and before each `run`, so that tools reading from disk (tests,
+  compilers, the agent's native file tools) see the current state.
 - The agent may still use its native file tools. The rule is: anything the
   programmer should follow goes through the protocol; purely mechanical changes
   (generated files, lockfiles, bulk renames) may be done natively, announced in

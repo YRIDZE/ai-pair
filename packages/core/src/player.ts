@@ -40,8 +40,6 @@ export type Stage = {
   confirm(id: number, command: string): Promise<boolean>
 }
 
-export type Played = { result: BatchResult; touched: Set<string> }
-
 type Range = { file: string; start: number; end: number }
 
 /**
@@ -102,8 +100,8 @@ export class Player {
     private readonly stage: Stage,
   ) {}
 
-  /** Plays a batch, and says how it went and which files it edited. */
-  async play(id: number, actions: Action[]): Promise<Played> {
+  /** Plays a batch, saves the files it edited, and says how it went. */
+  async play(id: number, actions: Action[]): Promise<BatchResult> {
     const playing: Playing = { touched: new Set(), runs: [], moved: false }
     this.playing = playing
     let result: BatchResult
@@ -121,7 +119,8 @@ export class Player {
         // The file is gone; the report just can't show it.
       }
     }
-    return { result, touched: playing.touched }
+    await this.save(playing)
+    return result
   }
 
   /** The lines changed in `span`, extended to the cursor's line, with the cursor marked. */
@@ -357,6 +356,8 @@ export class Player {
     const config = this.stage.config()
     const command = action.run
     if (typeof command !== "string" || command.trim() === "") return fail("invalid_action", "`run` needs a command.")
+    // Commands read files from disk, so the batch's edits so far go there first.
+    await this.save(playing)
     const id = nextRunId++
     const signal = this.stage.pacing.signal
 
@@ -457,6 +458,17 @@ export class Player {
       await this.delay(timing.afterMoveNearMs * scale)
     }
     return ok
+  }
+
+  /** Saves the files the batch has edited, so tools reading from disk see them. */
+  private async save(playing: Playing): Promise<void> {
+    for (const file of playing.touched) {
+      try {
+        await this.stage.editor.save(file)
+      } catch {
+        // Saving is best effort; the buffer is still the truth.
+      }
+    }
   }
 
   private clearPoint(): void {
