@@ -418,6 +418,13 @@ export class Player {
     playing.runs.push(result)
     const phase = outcome.running ? "background" : "done"
     panel.post({ type: "run", id, command, phase, exitCode: result.exit_code })
+    // The panel keeps showing it as running until it ends, whenever that is.
+    if (outcome.running) {
+      void outcome.exited?.then(
+        (exitCode) => panel.post({ type: "run", id, command, phase: "exited", exitCode }),
+        () => {},
+      )
+    }
 
     if (outcome.running && signal.aborted) return { kind: "interrupted", consumed: true }
     if (result.exit_code !== undefined && result.exit_code !== 0) {

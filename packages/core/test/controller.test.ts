@@ -956,6 +956,21 @@ describe("run", () => {
     ])
   })
 
+  it("tells the panel when a command left running ends later", async () => {
+    const { editor, panel, controller } = setup({}, { confirmCommands: false })
+    editor.commandScript["npm start"] = { ms: 10_000, exitCode: 1 }
+    await controller.start()
+    await controller.step([{ run: "npm start", wait: 2 }])
+    await until(controller.step([]))
+    const phases = () => panel.events.flatMap((e) => (e.type === "run" ? [[e.phase, e.exitCode]] : []))
+    expect(phases()).toEqual([
+      ["running", undefined],
+      ["background", undefined],
+    ])
+    await advance(8_000)
+    expect(phases().at(-1)).toEqual(["exited", 1])
+  })
+
   it("stops waiting when the programmer interrupts, reporting the command as still running", async () => {
     const { editor, controller } = setup({}, { confirmCommands: false })
     editor.commandScript["npm test"] = { ms: 60_000, exitCode: 0 }

@@ -81,6 +81,7 @@ export class PairTerminals implements vscode.Disposable {
       if (exitCode !== undefined) outcome.exitCode = exitCode
     } else {
       outcome.running = true
+      outcome.exited = ended.then(() => exitCode)
     }
     return outcome
   }

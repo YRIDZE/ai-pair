@@ -56,12 +56,12 @@ Layout, top to bottom:
      pause, so the pause feels intentional, and is hidden otherwise.
    - **A command to allow**, when the agent plays a `run` (see Commands).
    - **The reply box**, under the message. It's where the eye goes after
-     reading, which is when the programmer replies. The band has a
-     minimum height, so the reply box moves only for a long message.
+     reading, which is when the programmer replies. The band has room for
+     two lines of message, so the reply box moves only for a longer one.
 2. **History**, below the band, newest first. The agent's messages in muted
-   text, under an *Agent* label for each run of them; the programmer's
-   replies as bubbles on the right; commands as terminal rows with their
-   outcome (✓ exit 0, ✕ exit 1, skipped, still running); turn changes,
+   text; the programmer's replies as bubbles on the right; commands as
+   terminal rows with their outcome (✓ exit 0, ✕ exit 1, skipped, still
+   running, which changes to how it ended when it does); turn changes,
    interrupts and session starts and ends as dividers.
 
 Without a session, the band says so and how to start one, and after a

@@ -25,6 +25,8 @@ export type CommandOutcome = {
   shell?: string
   /** Interrupted before the command was sent to the terminal. */
   notStarted?: boolean
+  /** For a command still running: settles when it ends, with its exit code if the terminal reported one. */
+  exited?: Promise<number | undefined>
 }
 
 export type RunOptions = {
@@ -81,7 +83,8 @@ export type PanelEvent =
       type: "run"
       id: number
       command: string
-      phase: "confirm" | "running" | "done" | "declined" | "background"
+      /** `exited`: a command left running in the background has ended since. */
+      phase: "confirm" | "running" | "done" | "declined" | "background" | "exited"
       exitCode?: number
     }
 

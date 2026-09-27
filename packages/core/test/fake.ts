@@ -93,6 +93,7 @@ export class FakeEditor implements EditorPort {
     }
     this.commands.push({ command, options, unsaved: [...this.dirty] })
     const output = script.output ?? ""
+    const started = Date.now()
     const finished = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(script.ms <= options.waitMs), Math.min(script.ms, options.waitMs))
       options.signal.addEventListener("abort", () => {
@@ -100,7 +101,11 @@ export class FakeEditor implements EditorPort {
         resolve(false)
       })
     })
-    return finished ? { exitCode: script.exitCode, output, shell: "bash" } : { output, running: true }
+    if (finished) return { exitCode: script.exitCode, output, shell: "bash" }
+    const exited = new Promise<number | undefined>((resolve) => {
+      setTimeout(() => resolve(script.exitCode), Math.max(0, script.ms - (Date.now() - started)))
+    })
+    return { output, running: true, exited }
   }
 
   /** The programmer types into a file. */

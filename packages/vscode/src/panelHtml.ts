@@ -78,7 +78,8 @@ export function panelHtml(cspSource: string): string {
   #band.flash { animation: flash 1.4s ease-out; }
   @keyframes flash { from { background-color: color-mix(in srgb, var(--read) 12%, var(--surface)); } to { background-color: var(--surface); } }
   /* Keeps the reply box still for short messages. */
-  body.active #main { min-height: 142px; box-sizing: border-box; }
+  /* Room for the header and two lines of message, with the reading-pause bar under them. */
+  body.active #main { min-height: calc(53px + 2 * 1.45 * 1.45 * var(--vscode-editor-font-size, 13px)); box-sizing: border-box; }
 
   #head { display: flex; align-items: center; gap: 4px; height: 28px; }
   #status { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; font-size: 12px; }
@@ -156,7 +157,6 @@ export function panelHtml(cspSource: string): string {
   }
   .entry { overflow-wrap: anywhere; line-height: 1.5; }
   .agent { font-family: var(--narration); }
-  .speaker { font-family: var(--vscode-font-family); font-size: 11px; font-weight: 600; margin-bottom: 1px; }
   .you {
     align-self: flex-end; max-width: 85%; padding: 7px 11px; border-radius: 12px 12px 4px 12px;
     background: var(--you-tint); color: var(--vscode-foreground); font-family: var(--narration); line-height: 1.45;
@@ -270,17 +270,7 @@ export function panelHtml(cspSource: string): string {
     return el;
   }
 
-  function addAgent(html) {
-    // One "Agent" label per run of the agent's messages, above the newest.
-    const top = ui.history.firstElementChild;
-    if (top && top.classList.contains("agent")) top.querySelector(".speaker")?.remove();
-    const el = entry("agent", html);
-    const who = document.createElement("div");
-    who.className = "speaker";
-    who.textContent = "Agent";
-    el.prepend(who);
-    add(el);
-  }
+  function addAgent(html) { add(entry("agent", html)); }
 
   function addDivider(text) { add(entry("divider")).textContent = text; }
 
@@ -298,21 +288,30 @@ export function panelHtml(cspSource: string): string {
     add(el);
   }
 
-  function addRun(command, phase, exitCode) {
+  function addRun(id, command, phase, exitCode) {
     const el = entry("run");
+    el.dataset.run = String(id);
     const cmd = document.createElement("span");
     cmd.className = "cmd";
     cmd.textContent = command;
     cmd.title = command;
     const outcome = document.createElement("span");
-    outcome.className = "outcome";
-    if (phase === "declined") { el.classList.add("skipped"); outcome.textContent = "⊘ skipped"; }
-    else if (phase === "background") outcome.textContent = "still running";
-    else if (exitCode === undefined) outcome.textContent = "done";
-    else if (exitCode === 0) { outcome.classList.add("ok"); outcome.textContent = "✓ exit 0"; }
-    else { outcome.classList.add("fail"); outcome.textContent = "✕ exit " + exitCode; }
     el.append(cmd, outcome);
+    setOutcome(el, phase, exitCode);
     add(el);
+  }
+
+  function setOutcome(el, phase, exitCode) {
+    const outcome = el.querySelector(".outcome") || el.lastElementChild;
+    outcome.className = "outcome";
+    el.classList.toggle("skipped", phase === "declined");
+    if (phase === "declined") outcome.textContent = "⊘ skipped";
+    else if (phase === "background") outcome.textContent = "still running";
+    else if (exitCode === undefined) outcome.textContent = phase === "exited" ? "ended" : "done";
+    else if (exitCode === 0) { outcome.classList.add("ok"); outcome.textContent = "✓ exit 0"; }
+    // Interrupted (Ctrl+C) or terminated, like a server being restarted: not a failure.
+    else if (exitCode === 130 || exitCode === 143) outcome.textContent = "■ stopped";
+    else { outcome.classList.add("fail"); outcome.textContent = "✕ exit " + exitCode; }
   }
 
   const attaching = () => active && selection !== null && !selectionDismissed;
@@ -461,8 +460,14 @@ export function panelHtml(cspSource: string): string {
           if (runConfirming) flash();
           return;
         }
+        if (e.phase === "exited") {
+          // A command left running has ended: its row says how.
+          const row = ui.history.querySelector('.run[data-run="' + e.id + '"]');
+          if (row) setOutcome(row, e.phase, e.exitCode);
+          return;
+        }
         if (runId === e.id) { runId = null; runConfirming = false; ui.run.className = ""; syncStatus(); }
-        addRun(e.command, e.phase, e.exitCode);
+        addRun(e.id, e.command, e.phase, e.exitCode);
         return;
       }
       case "selection":
