@@ -37,10 +37,10 @@ function alive(pid: number): boolean {
 }
 
 /**
- * The live windows with a workspace folder containing `cwd`, best first: the most closely
- * containing folder, then the most recently focused window.
+ * The first of `folders` inside a live window's workspace folder, and the windows it's in, best
+ * first: the most closely containing workspace folder, then the most recently focused window.
  */
-export function findWindows(cwd: string, dir: string): Discovery[] {
+export function findWindows(folders: string[], dir: string): { folder: string; windows: Discovery[] } {
   const windows: Discovery[] = []
   let files: string[] = []
   try {
@@ -57,22 +57,23 @@ export function findWindows(cwd: string, dir: string): Discovery[] {
     }
   }
 
-  const here = realpath(cwd)
-  const matches: { window: Discovery; length: number }[] = []
-  for (const window of windows) {
-    const lengths = window.workspaceFolders.map(realpath).filter((f) => contains(f, here)).map((f) => f.length)
-    if (lengths.length > 0) matches.push({ window, length: Math.max(...lengths) })
+  for (const folder of folders) {
+    const here = realpath(folder)
+    const matches: { window: Discovery; length: number }[] = []
+    for (const window of windows) {
+      const lengths = window.workspaceFolders.map(realpath).filter((f) => contains(f, here)).map((f) => f.length)
+      if (lengths.length > 0) matches.push({ window, length: Math.max(...lengths) })
+    }
+    if (matches.length === 0) continue
+    matches.sort((a, b) => b.length - a.length || b.window.lastFocused - a.window.lastFocused)
+    return { folder, windows: matches.map((m) => m.window) }
   }
-  if (matches.length === 0) {
-    throw new RelayError(
-      "no_editor",
-      windows.length === 0
-        ? `No VS Code window with the AI Pair extension is running. Ask the programmer to open ${cwd} in VS Code.`
-        : `No VS Code window has ${cwd} open. Ask the programmer to open it in VS Code (with the AI Pair extension).`,
-    )
-  }
-  matches.sort((a, b) => b.length - a.length || b.window.lastFocused - a.window.lastFocused)
-  return matches.map((m) => m.window)
+  throw new RelayError(
+    "no_editor",
+    windows.length === 0
+      ? `No VS Code window with the AI Pair extension is running. Ask the programmer to open ${folders[0]} in VS Code.`
+      : `No VS Code window has ${folders[0]} open. Ask the programmer to open it in VS Code (with the AI Pair extension).`,
+  )
 }
 
 type Pending = {
@@ -88,17 +89,31 @@ const HANDSHAKE_MS = 5000
 /** Tools whose results are reports, which must be delivered exactly once. */
 const REPORTING: ReadonlySet<ToolName> = new Set(["step", "listen", "end"])
 
-/** A lazily (re)connected link to the editor window for `cwd`. */
+/** A lazily (re)connected link to the editor window for the agent's folder, `cwd` until `locate` says otherwise. */
 export class EditorLink {
   private ws: WebSocket | null = null
   private connecting: Promise<WebSocket> | null = null
   private nextId = 1
   private readonly pending = new Map<number, Pending>()
+  private folder: string
 
   constructor(
-    private readonly cwd: string,
+    cwd: string,
     private readonly dir: string,
-  ) {}
+  ) {
+    this.folder = cwd
+  }
+
+  /** Links to the window for the first of `folders` that one has open, and returns that folder. */
+  locate(folders: string[]): string {
+    const { folder } = findWindows(folders, this.dir)
+    if (folder !== this.folder) {
+      this.folder = folder
+      this.ws?.close()
+      this.ws = null
+    }
+    return folder
+  }
 
   async call(tool: ToolName, args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     const ws = await this.connect()
@@ -136,7 +151,7 @@ export class EditorLink {
    */
   private async open(): Promise<WebSocket> {
     let first: unknown
-    for (const window of findWindows(this.cwd, this.dir)) {
+    for (const window of findWindows([this.folder], this.dir).windows) {
       try {
         return await this.openWindow(window)
       } catch (e) {

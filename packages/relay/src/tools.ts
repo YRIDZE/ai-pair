@@ -138,6 +138,10 @@ export const TOOLS = {
       "Start a live pair programming session in the programmer's editor. Call this when the programmer asks to pair. The result includes the pairing guide: read it and follow it for the whole session. From then on, everything you do through `step` appears in their editor at a human pace, with your narration.",
     inputSchema: {
       task: z.string().optional().describe("A short description of what you'll work on, shown to the programmer."),
+      cwd: z
+        .string()
+        .optional()
+        .describe("Your working directory, as an absolute path. The paths you give and get during the session are relative to it."),
     },
   },
   step: {

@@ -74,9 +74,16 @@ The file is removed on deactivation.
 editor may be opened after the harness. To find the window it:
 
 1. Reads all discovery files and drops stale ones (the process is gone).
-2. Picks the window whose workspace folder contains the harness's working
-   directory (the longest match). On a tie, it picks the most recently focused.
-3. Connects and authenticates with the token and protocol version.
+2. Finds the agent's working directory: the first of these that a window's
+   workspace folder contains. Harnesses don't all start MCP servers in the
+   project (Codex's app and IDE extension start them in `/` or in their own
+   install folder), so the relay's own working directory comes last:
+   - the `cwd` the agent passes to `start`,
+   - the harness's roots, if it supports MCP roots,
+   - the relay's working directory.
+3. Picks the window whose workspace folder contains it (the longest match). On
+   a tie, it picks the most recently focused.
+4. Connects and authenticates with the token and protocol version.
 
 If no window matches, `start` fails with a clear message: "Open
 `/Users/me/projects/todo-app` in VS Code with the extension installed."
@@ -102,9 +109,9 @@ the report would be lost. So the relay sends such a report back, and the
 editor puts its batches and events back to be reported again. The WebSocket is
 ordered, so this happens before the agent's next call arrives.
 
-**Paths are relative to the agent's working directory.** The relay sends its
-working directory with `start`, and the session resolves and reports paths
-relative to it, which may be a subfolder of the workspace.
+**Paths are relative to the agent's working directory.** The relay sends the
+working directory it found with `start`, and the session resolves and reports
+paths relative to it, which may be a subfolder of the workspace.
 
 ## Sessions
 

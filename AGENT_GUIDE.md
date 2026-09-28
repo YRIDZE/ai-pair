@@ -329,9 +329,10 @@ type_fast ";▌"
 
 ### Starting and ending
 
-- **Start** with `start`, giving a short task description. A session starts
-  fresh: re-read any files you need, even if you read them earlier in the
-  conversation, because the programmer may have changed them since.
+- **Start** with `start`, giving a short task description and your working
+  directory, as an absolute path. A session starts fresh: re-read any files
+  you need, even if you read them earlier in the conversation, because the
+  programmer may have changed them since.
 - **When the task is done,** say so in a short summary and call `listen`. The
   programmer may have more for you. If they say they're done, call `end`.
 - **When you receive an `end` event,** the session is over. Stop using the

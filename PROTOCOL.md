@@ -145,11 +145,15 @@ its blocked call just waits longer (subject to `MAX_BLOCK`).
 
 ## Tools
 
-### `start(task?: string) -> Report`
+### `start(task?: string, cwd?: string) -> Report`
 
 Starts a session in the editor window for the current project. `task` is a
-short description shown in the narration panel. Fails if a session is already
-active in that window, or if no editor window has the project open.
+short description shown in the narration panel. `cwd` is the agent's working
+directory, absolute: the agent should always give it, since not every harness
+starts the MCP server there. Without it, or if no editor window has it open,
+the harness's MCP roots and then the server's own working directory are tried.
+Fails if a session is already active in that window, or if no editor window
+has the project open.
 
 Besides the report, the result includes the [agent guide](AGENT_GUIDE.md),
 which the agent follows for the whole session.

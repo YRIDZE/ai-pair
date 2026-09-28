@@ -5,6 +5,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
+import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Bridge, Controller } from "@ai-pair/core"
 import { FakeEditor, FakePanel, testConfig } from "../../core/test/fake"
@@ -47,11 +48,13 @@ afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-async function connect(cwd = "/project/src"): Promise<Client> {
+/** `roots`: the harness's roots, as file URLs, if it has them. */
+async function connect(cwd = "/project/src", roots?: string[]): Promise<Client> {
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
   const server = createServer(new EditorLink(cwd, dir), "THE GUIDE", cwd)
   await server.connect(serverSide)
-  const client = new Client({ name: "test", version: "0" })
+  const client = new Client({ name: "test", version: "0" }, { capabilities: roots ? { roots: {} } : {} })
+  if (roots) client.setRequestHandler(ListRootsRequestSchema, () => ({ roots: roots.map((uri) => ({ uri })) }))
   await client.connect(clientSide)
   clients.push(client)
   return client
@@ -176,6 +179,27 @@ describe("relay", () => {
   it("explains when no editor has the project open", async () => {
     const client = await connect("/elsewhere")
     expect((await call(client, "start")).text).toMatch(/^no_editor: No VS Code window has \/elsewhere open/)
+    const given = await call(client, "start", { cwd: "/also/elsewhere" })
+    expect(given.text).toMatch(/^no_editor: No VS Code window has \/also\/elsewhere open/)
+  })
+
+  it("works in the folder the agent gives, when the harness started the relay somewhere else", async () => {
+    const client = await connect("/")
+    expect((await call(client, "start", { cwd: "/project/src" })).error).toBe(false)
+    await call(client, "step", { actions: [{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "hi▌" }] })
+    await call(client, "step", { actions: [] })
+    expect(editor.text("src/a.ts")).toBe("hi")
+  })
+
+  it("works in the harness's root, and in the relay's folder when the agent's isn't open", async () => {
+    const rooted = await connect("/", ["file:///elsewhere", "file:///project/src"])
+    expect((await call(rooted, "start")).error).toBe(false)
+    expect((await call(rooted, "read", { file: "a.ts" })).error).toBe(false)
+    await call(rooted, "end")
+
+    const client = await connect("/project/src")
+    expect((await call(client, "start", { cwd: "/elsewhere" })).error).toBe(false)
+    expect((await call(client, "read", { file: "a.ts" })).error).toBe(false)
   })
 })
 
@@ -192,8 +216,10 @@ describe("discovery", () => {
     write("dead.json", ["/work/app/src"], 9)
     const dead = JSON.parse(fs.readFileSync(path.join(dir, "dead.json"), "utf8"))
     fs.writeFileSync(path.join(dir, "dead.json"), JSON.stringify({ ...dead, pid: 999_999_999 }))
-    expect(findWindows("/work/app/src", dir).map((w) => w.token)).toEqual(["inner-new.json", "inner-old.json", "outer.json"])
-    expect(findWindows("/work/lib", dir).map((w) => w.token)).toEqual(["outer.json"])
+    const tokens = (folders: string[]) => findWindows(folders, dir).windows.map((w) => w.token)
+    expect(tokens(["/work/app/src"])).toEqual(["inner-new.json", "inner-old.json", "outer.json"])
+    expect(tokens(["/work/lib"])).toEqual(["outer.json"])
+    expect(findWindows(["/", "/work/lib", "/work/app"], dir).folder).toBe("/work/lib")
   })
 
   it("skips a window whose file outlived it, even when its pid now belongs to another process", async () => {

@@ -1,3 +1,5 @@
+import * as path from "node:path"
+import { fileURLToPath } from "node:url"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { z } from "zod"
@@ -7,7 +9,7 @@ import { renderFile, renderReport } from "./render"
 import { TOOLS } from "./tools"
 
 /** Always loaded by the harness, so kept short; the full guide comes with `start`. */
-export const INSTRUCTIONS = `Live pair programming in the programmer's editor (VS Code with the AI Pair extension). When the programmer asks to pair, call \`start\`: its result includes the pairing guide, which you follow for the whole session. During a session, everything you do through \`step\` appears in their editor at a human pace, with your narration, and they can interrupt or take over at any moment. Never end your turn during a session; call \`listen\` instead.`
+export const INSTRUCTIONS = `Live pair programming in the programmer's editor (VS Code with the AI Pair extension). When the programmer asks to pair, call \`start\` with your working directory: its result includes the pairing guide, which you follow for the whole session. During a session, everything you do through \`step\` appears in their editor at a human pace, with your narration, and they can interrupt or take over at any moment. Never end your turn during a session; call \`listen\` instead.`
 
 /** The agent-facing part of AGENT_GUIDE.md: everything after the first horizontal rule. */
 export function agentGuide(markdown: string): string {
@@ -20,12 +22,30 @@ export function startPrompt(task?: string): string {
   return `Let's pair program. ${what}\n\nStart a session with the \`start\` tool of the pair server, then follow the guide it returns.`
 }
 
-/** `cwd` is the agent's working directory: its paths are relative to it. */
+/** How long to wait for the harness to list its roots: one that claims to but never answers mustn't block `start`. */
+const ROOTS_MS = 2000
+
+/**
+ * `cwd` is the relay's working directory. The agent's paths are relative to its own, which `start`
+ * finds as the first of these that a VS Code window has open: the one the agent gives, the harness's
+ * roots, and `cwd`. Some harnesses start MCP servers in `/` or in their own install folder.
+ */
 export function createServer(link: EditorLink, guide: string, cwd: string): McpServer {
   const server = new McpServer({ name: "ai-pair", version: "0.0.1" }, { instructions: INSTRUCTIONS })
 
-  const run = async (tool: ToolName, args: object, signal: AbortSignal): Promise<CallToolResult> => {
+  const roots = async (): Promise<string[]> => {
+    if (!server.server.getClientCapabilities()?.roots) return []
     try {
+      const { roots } = await server.server.listRoots(undefined, { timeout: ROOTS_MS })
+      return roots.filter((r) => r.uri.startsWith("file:")).map((r) => fileURLToPath(r.uri))
+    } catch {
+      return []
+    }
+  }
+
+  const run = async (tool: ToolName, args: object, signal: AbortSignal, before?: () => Promise<object>): Promise<CallToolResult> => {
+    try {
+      if (before) args = { ...args, ...(await before()) }
       const result = await link.call(tool, args as Record<string, unknown>, signal)
       const text = tool === "read" ? renderFile(result as FileContent) : renderReport(result as Report, tool)
       const content: CallToolResult["content"] = [{ type: "text", text }]
@@ -38,7 +58,12 @@ export function createServer(link: EditorLink, guide: string, cwd: string): McpS
     }
   }
 
-  server.registerTool("start", TOOLS.start, (args, extra) => run("start", { ...args, cwd }, extra.signal))
+  server.registerTool("start", TOOLS.start, ({ cwd: given, ...args }, extra) =>
+    run("start", args, extra.signal, async () => {
+      const folders = [...(given && path.isAbsolute(given) ? [given] : []), ...(await roots()), cwd]
+      return { cwd: link.locate(folders) }
+    }),
+  )
   server.registerTool("step", TOOLS.step, (args, extra) => run("step", args, extra.signal))
   server.registerTool("listen", TOOLS.listen, (args, extra) => run("listen", args, extra.signal))
   server.registerTool("end", TOOLS.end, (args, extra) => run("end", args, extra.signal))
