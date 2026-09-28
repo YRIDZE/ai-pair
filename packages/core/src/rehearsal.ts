@@ -1,5 +1,5 @@
-// Playing a batch in memory before queuing it, so an action that would fail (an anchor that doesn't
-// match, say) is reported at once, instead of when the batch plays, minutes later. It's the same
+// Playing a batch in memory before queuing it, so an action that would fail (text that isn't on
+// its line, say) is reported at once, instead of when the batch plays, minutes later. It's the same
 // player as real playback, on a stage that plays in a copy of the editor, instantly and silently.
 
 import type { Action, BatchResult } from "@ai-pair/protocol"

@@ -82,7 +82,7 @@ describe("relay", () => {
     expect(started.text).toMatch(/started/)
     expect(started.content[1]!.text).toContain("THE GUIDE")
 
-    const first = await call(client, "step", { actions: [{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["hi", ""] }] })
+    const first = await call(client, "step", { actions: [{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "hi▌" }] })
     expect(first.text).toMatch(/Batch 1 is playing/)
     const second = await call(client, "step", { actions: [] })
     // Reports are text for the agent to read: check what they say, not how they're laid out.
@@ -119,8 +119,19 @@ describe("relay", () => {
     expect(unmarked.text).toMatch(/marks where your cursor goes with ▌/)
     const end = await call(client, "step", { actions: [{ move: { to: "end" } }] })
     expect(end.text).toMatch(/`to` is `"line_end"`/)
-    const single = await call(client, "step", { actions: [{ type: "x" }] })
-    expect(single.error).toBe(true)
+    const plain = await call(client, "step", { actions: [{ type: "x" }] })
+    expect(plain.error).toBe(true)
+    expect(plain.text).toMatch(/Mark where your cursor ends with ▌/)
+    const pair = await call(client, "step", { actions: [{ type_fast: ["f(", ")"] }] })
+    expect(pair.text).toMatch(/one text, with ▌ where your cursor ends/)
+    const twice = await call(client, "step", { actions: [{ type: "f(▌)▌" }] })
+    expect(twice.text).toMatch(/has 2 ▌/)
+    const near = await call(client, "step", { actions: [{ select: { text: "x", near_line: 3 } }] })
+    expect(near.text).toMatch(/Give `line`: the line the code starts on/)
+    const range = await call(client, "step", { actions: [{ point: { line: 1, from: "a", to: "b" } }] })
+    expect(range.text).toMatch(/The end of a range is `through`/)
+    const nothing = await call(client, "step", { actions: [{ select: { line: 1 } }] })
+    expect(nothing.text).toMatch(/Give the code: `text`, or `from` and `through`/)
   })
 
   it("lets only one agent pair in a window at a time", async () => {

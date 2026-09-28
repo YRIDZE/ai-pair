@@ -26,7 +26,7 @@ Status: **draft**.
   every tool call to the extension, and renders the extension's structured
   reports as the text the agent reads. It has no session state of its own.
 - **The core** is an editor-agnostic TypeScript library, running inside the
-  extension: sessions, the batch queue, the playback scheduler, anchor
+  extension: sessions, the batch queue, the playback scheduler, place
   resolution, cursor tracking, the event log, and report assembly. It has no
   editor dependencies, so it can be tested against a fake editor.
 - **The VS Code adapter** is a thin layer over the VS Code API: apply edits with

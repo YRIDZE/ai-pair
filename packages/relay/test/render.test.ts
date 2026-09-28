@@ -33,7 +33,7 @@ describe("reports", () => {
         rejected: {
           index: 3,
           action: { move: { line: 2, at: "x▌" } },
-          error: { kind: "anchor_ambiguous", message: "2 matches", candidates: [{ line: 1, context: "x" }] },
+          error: { kind: "ambiguous", message: "2 matches", candidates: [{ line: 1, context: "x" }] },
           code: { file: "a.ts", lines: [{ number: 3, text: "y▌" }] },
         },
       }),
@@ -41,7 +41,7 @@ describe("reports", () => {
     )
     expect(text).toMatch(/rejected/)
     expect(text).toMatch(/action 3 would fail:\n  \{"move":\{"line":2,"at":"x▌"\}\}/)
-    expect(text).toMatch(/anchor_ambiguous: 2 matches\n  line 1: x/)
+    expect(text).toMatch(/ambiguous: 2 matches\n  line 1: x/)
     expect(text).toMatch(/a\.ts:\n3  y▌/)
     expect(text).toMatch(/submit the whole batch again/)
   })
@@ -83,7 +83,7 @@ describe("reports", () => {
             id: 6,
             status: "interrupted",
             code: { file: "a.ts", lines: [{ number: 3, text: "  res.sta▌" }] },
-            unplayed: [{ type: ["tus(", ")"] }],
+            unplayed: [{ type: "tus(▌)" }],
           },
           { id: 7, status: "discarded", unplayed: [{ say: "Next." }] },
         ],
@@ -93,7 +93,7 @@ describe("reports", () => {
     expect(text.indexOf("use zod")).toBeLessThan(text.indexOf("Batch 6"))
     expect(text).toMatch(/> please/)
     expect(text).toMatch(/Batch 6 interrupted/)
-    expect(text).toContain(JSON.stringify({ type: ["tus(", ")"] }))
+    expect(text).toContain(JSON.stringify({ type: "tus(▌)" }))
     expect(text).toMatch(/Batch 7 discarded/)
     expect(text).toContain(JSON.stringify({ say: "Next." }))
   })
@@ -106,7 +106,7 @@ describe("reports", () => {
             id: 8,
             status: "failed",
             error: {
-              kind: "anchor_ambiguous",
+              kind: "ambiguous",
               message: '2 matches for "x"',
               candidates: [
                 { line: 12, context: "x = 1" },
@@ -119,7 +119,7 @@ describe("reports", () => {
       }),
       "step",
     )
-    expect(text).toMatch(/anchor_ambiguous: 2 matches/)
+    expect(text).toMatch(/ambiguous: 2 matches/)
     expect(text).toMatch(/line 12: x = 1/)
     expect(text).toMatch(/line 31: x = 2/)
     expect(text).toMatch(/the one that failed/)

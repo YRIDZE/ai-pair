@@ -35,68 +35,68 @@ export const SCRIPT: Action[][] = [
   [
     { say: "First, the shape of a todo: an interface with an id, a title, and whether it's done." },
     { move: { file: TODOS, line: 1, to: "line_end" } },
-    { type: ["", "\n"] },
-    { type: ["export interface Todo {\n  ", "\n}"] },
-    { type: ["id: number;\n  title: string;\n  done: boolean;", ""] },
+    { type: "▌\n" },
+    { type: "export interface Todo {\n  ▌\n}" },
+    { type: "id: number;\n  title: string;\n  done: boolean;▌" },
   ],
   [
     { say: "The store is just an array and a counter for ids. `createTodo` is what the routes will call." },
     { move: { line: 5, to: "line_end" } },
-    { type: ["\n\nconst todos: Todo[] = [];\nlet nextId = 1;\n\nexport function createTodo(", ")"] },
-    { type: ["title: string", ""] },
+    { type: "\n\nconst todos: Todo[] = [];\nlet nextId = 1;\n\nexport function createTodo(▌)" },
+    { type: "title: string▌" },
     { move: { to: "line_end" } },
-    { type: [": Todo {\n  ", "\n}"] },
+    { type: ": Todo {\n  ▌\n}" },
     { say: "It takes the next id, pushes the new todo onto the array, and returns it, so the route can send it straight back." },
-    { type: ["const todo = { ", " }"] },
-    { type: ["id: nextId++, title, done: false", ""] },
+    { type: "const todo = { ▌ }" },
+    { type: "id: nextId++, title, done: false▌" },
     { move: { to: "line_end" } },
-    { type: [";\n  todos.push(", ")"] },
-    { type: ["todo", ""] },
+    { type: ";\n  todos.push(▌)" },
+    { type: "todo▌" },
     { move: { to: "line_end" } },
-    { type: [";\n  return todo;", ""] },
+    { type: ";\n  return todo;▌" },
   ],
   [
     {
       say: "Now the route. In Express, a route is an HTTP method, a path, and a handler that receives the request and the response.",
     },
     { move: { file: SERVER, line: 4, at: "app.use(express.json());▌" } },
-    { type: ["\n\napp.post(", ")"] },
-    { type: ['"', '"'] },
-    { type: ["/todos", ""] },
+    { type: "\n\napp.post(▌)" },
+    { type: '"▌"' },
+    { type: "/todos▌" },
     { move: { at: '"/todos"▌)' } },
-    { type: [", (", ")"] },
-    { type: ["req, res", ""] },
+    { type: ", (▌)" },
+    { type: "req, res▌" },
     { move: { at: "(req, res)▌)" } },
-    { type: [" => {\n  ", "\n}"] },
+    { type: " => {\n  ▌\n}" },
   ],
   [
-    { point: { text: "app.use(express.json());" } },
+    { point: { line: 4, text: "app.use(express.json());" } },
     { say: "`express.json()` up here is what parses the request body, so `req.body` is an object in our handler." },
     { say: "We create the todo from the body's `title`, and answer 201 Created with the new todo as JSON." },
-    { type: ["const todo = createTodo(", ")"] },
-    { type: ["req.body.title", ""] },
+    { type: "const todo = createTodo(▌)" },
+    { type: "req.body.title▌" },
     { move: { to: "line_end" } },
-    { type: [";\n  res.status(", ")"] },
-    { type: ["201", ""] },
+    { type: ";\n  res.status(▌)" },
+    { type: "201▌" },
     { move: { to: "line_end" } },
-    { type: [".json(", ")"] },
-    { type: ["todo", ""] },
+    { type: ".json(▌)" },
+    { type: "todo▌" },
     { move: { to: "line_end" } },
-    { type: [";", ""] },
+    { type: ";▌" },
   ],
   [
     // As the `read` before it shows: the handler's closing line is line 9.
     { move: { line: 9, to: "line_end" } },
-    { type: [";", ""] },
+    { type: ";▌" },
     { say: "We need to import `createTodo`." },
     { move: { line: 1, at: 'import express from "express";▌' } },
-    { type_fast: ["\nimport { ", " }"] },
-    { type_fast: ["createTodo", ""] },
+    { type_fast: "\nimport { ▌ }" },
+    { type_fast: "createTodo▌" },
     { move: { to: "line_end" } },
-    { type_fast: [' from "', '"'] },
-    { type_fast: ["./todos", ""] },
+    { type_fast: ' from "▌"' },
+    { type_fast: "./todos▌" },
     { move: { to: "line_end" } },
-    { type_fast: [";", ""] },
+    { type_fast: ";▌" },
   ],
   [
     {
@@ -106,49 +106,54 @@ export const SCRIPT: Action[][] = [
   [
     { say: "Next, listing todos. First a function in the store that hands out the array." },
     { move: { file: TODOS, line: 14, to: "line_end" } },
-    { type: ["\n\nexport function listTodos(): Todo[] {\n  ", "\n}"] },
-    { type: ["return todos;", ""] },
+    { type: "\n\nexport function listTodos(): Todo[] {\n  ▌\n}" },
+    { type: "return todos;▌" },
   ],
   [
     { say: "And the route for it, right after the POST handler: `GET /todos` sends the list back as JSON." },
     { move: { file: SERVER, line: 10, at: "});▌\n" } },
-    { type: ["\n\napp.get(", ")"] },
-    { type: ['"', '"'] },
-    { type: ["/todos", ""] },
+    { type: "\n\napp.get(▌)" },
+    { type: '"▌"' },
+    { type: "/todos▌" },
     { move: { at: '"/todos"▌)' } },
-    { type: [", (", ")"] },
-    { type: ["req, res", ""] },
+    { type: ", (▌)" },
+    { type: "req, res▌" },
     { move: { at: "(req, res)▌)" } },
-    { type: [" => {\n  ", "\n}"] },
-    { type: ["res.json(", ")"] },
-    { type: ["listTodos()", ""] },
+    { type: " => {\n  ▌\n}" },
+    { type: "res.json(▌)" },
+    { type: "listTodos()▌" },
     { move: { to: "line_end" } },
-    { type: [";", ""] },
+    { type: ";▌" },
   ],
   [
     // As the `read` before it shows: the handler's closing line is line 14.
     { move: { line: 14, to: "line_end" } },
-    { type: [";", ""] },
+    { type: ";▌" },
     { say: "It needs the import too." },
     { move: { line: 2, at: "import { createTodo▌ }" } },
-    { type: [", listTodos", ""] },
+    { type: ", listTodos▌" },
   ],
 ]
 
 const SUMMARY =
   "That's the demo: the direction first, then one path end to end, then broadening one case at a time. Updating and deleting would follow the same cycle."
 
+/** Where an action goes, if it says. */
+function target(action: Action): { file?: string; line?: number } | undefined {
+  return "move" in action ? action.move : "select" in action ? action.select : "point" in action ? action.point : undefined
+}
+
 /**
  * Plays a batch of the script. Like an agent, it first reads the file the batch works in, if the
- * batch moves to a line by its number: only numbers it has been shown are allowed. `current`: the
- * file the batches before worked in.
+ * batch gives a line number: only numbers it has been shown are allowed. `current`: the file the
+ * batches before worked in.
  */
 export async function stepScript(controller: Controller, batch: Action[], current: { file?: string }): Promise<Report> {
   for (const action of batch) {
-    const file = "move" in action ? action.move.file : "point" in action ? action.point.file : undefined
+    const file = target(action)?.file
     if (file) current.file = file
   }
-  if (current.file && batch.some((a) => "move" in a && a.move.line !== undefined)) {
+  if (current.file && batch.some((a) => target(a)?.line !== undefined)) {
     // A file the batch creates isn't there to read yet; its one line is empty.
     await controller.read(current.file).catch(() => {})
   }

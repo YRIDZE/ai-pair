@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resolveAnchor, resolveSpan, resolveSpot } from "../src/anchors"
+import { resolveSpan, resolveSpot } from "../src/places"
 import { applyChange } from "../src/lines"
 import { planTyping, readingTime } from "../src/typing"
 import { terminalText } from "../src/text"
@@ -43,31 +43,35 @@ describe("paths", () => {
   })
 })
 
-describe("anchors", () => {
+describe("places", () => {
   const text = "a = 1\nb = 1\nc = 1\n"
 
-  it("resolves a unique match", () => {
-    expect(resolveAnchor(text, { text: "b = " })).toEqual({ ok: true, range: { start: 6, end: 10 } })
-  })
-
-  it("reports a missing match", () => {
-    expect(resolveAnchor(text, { text: "d" })).toMatchObject({ ok: false, kind: "anchor_not_found" })
-  })
-
-  it("reports ambiguity with candidates", () => {
-    expect(resolveAnchor(text, { text: "1" })).toMatchObject({
+  it("finds a span's text on its line", () => {
+    expect(resolveSpan(text, { line: 2, text: "b = " })).toEqual({ ok: true, range: { start: 6, end: 10 } })
+    // Only on its line: elsewhere, it's listed.
+    expect(resolveSpan(text, { line: 2, text: "1" })).toEqual({ ok: true, range: { start: 10, end: 11 } })
+    expect(resolveSpan(text, { line: 1, text: "c = 1" })).toMatchObject({
       ok: false,
-      kind: "anchor_ambiguous",
-      candidates: [
-        { line: 1, context: "a = 1" },
-        { line: 2, context: "b = 1" },
-        { line: 3, context: "c = 1" },
-      ],
+      kind: "not_found",
+      message: 'The text isn\'t on line 1: line 1 reads "a = 1". It\'s on these lines:',
+      candidates: [{ line: 3, context: "c = 1" }],
     })
+    expect(resolveSpan(text, { line: 1, text: "d" })).toMatchObject({ ok: false, kind: "not_found", message: 'Text not found: "d"; line 1 reads "a = 1"' })
+    expect(resolveSpan(text, { line: 1, text: " " })).toMatchObject({ ok: false, kind: "ambiguous", message: expect.stringContaining("2 times on line 1") })
   })
 
-  it("breaks ties by the nearest line", () => {
-    expect(resolveAnchor(text, { text: "1", near_line: 3 })).toEqual({ ok: true, range: { start: 16, end: 17 } })
+  it("takes a span's text starting on its line, which may go on past it", () => {
+    expect(resolveSpan(text, { line: 1, text: "1\nb" })).toEqual({ ok: true, range: { start: 4, end: 7 } })
+  })
+
+  it("resolves a range through the first `through` after `from`", () => {
+    expect(resolveSpan(text, { line: 2, from: "b", through: "1" })).toEqual({ ok: true, range: { start: 6, end: 11 } })
+    expect(resolveSpan(text, { line: 1, from: "a", through: "c = " })).toEqual({ ok: true, range: { start: 0, end: 16 } })
+    expect(resolveSpan(text, { line: 3, from: "c", through: "b" })).toMatchObject({ ok: false, kind: "not_found" })
+  })
+
+  it("ignores the cursor marker in a span, so code can be copied from a report", () => {
+    expect(resolveSpan(text, { line: 2, text: "b =▌ 1" })).toEqual({ ok: true, range: { start: 6, end: 11 } })
   })
 
   it("resolves a spot between two texts that occur together, on its line only", () => {
@@ -76,20 +80,11 @@ describe("anchors", () => {
     expect(resolveSpot(text, { at: " = ▌1", line: 2 })).toEqual({ ok: true, range: { start: 10, end: 10 } })
     expect(resolveSpot(text, { at: "b▌ = ", line: 3 })).toMatchObject({
       ok: false,
-      kind: "anchor_not_found",
+      kind: "not_found",
       candidates: [{ line: 2, context: "b = 1" }],
     })
     // The line is the one the spot is on, after a `before` that ends with a newline.
     expect(resolveSpot(text, { at: "b = 1\n▌", line: 3 })).toEqual({ ok: true, range: { start: 12, end: 12 } })
-  })
-
-  it("ignores the cursor marker in an anchor, so code can be copied from a report", () => {
-    expect(resolveAnchor(text, { text: "b =▌ 1" })).toEqual({ ok: true, range: { start: 6, end: 11 } })
-  })
-
-  it("resolves a from/to span, to the first match of `to` after `from`", () => {
-    expect(resolveSpan(text, { from: { text: "b" }, to: { text: "1" } })).toEqual({ ok: true, range: { start: 6, end: 11 } })
-    expect(resolveSpan(text, { from: { text: "c" }, to: { text: "b" } })).toMatchObject({ ok: false, kind: "anchor_not_found" })
   })
 })
 

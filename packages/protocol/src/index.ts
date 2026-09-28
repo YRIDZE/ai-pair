@@ -1,41 +1,41 @@
 // Types of the agent-facing protocol. See PROTOCOL.md.
 
-export type Anchor = {
-  text: string
-  near_line?: number
-}
-
-/** A single anchor's match, or from the start of `from` to the end of the first `to` after it. */
-export type Span = Anchor | { from: Anchor; to: { text: string } }
-
-/** A spot on `line`: the text around it, `at`, with the cursor marker `▌` where the spot is. */
-export type Spot = { at: string; line: number }
-
 /**
- * Where a `move` goes: on `line`, exactly, a spot, or the end of the line. Without `line`, on the
- * cursor's line.
+ * Where a `move` goes: on `line`, exactly, a spot, `at`, or the end of the line. Without `line`,
+ * on the cursor's line.
  */
 export type MoveTarget = {
   file?: string
   /** The line the cursor lands on, from 1. Omitted: the cursor's line. */
   line?: number
-  /** A spot on the line: the text around it, with `▌` where the cursor goes. See `Spot`. */
+  /** A spot on the line: the text around it, with `▌` where the cursor goes. */
   at?: string
   /** `line_end`: the end of the line. */
   to?: "line_end"
 }
 
-/** Typed as `before` then `after`, leaving the cursor between them. */
-export type TypeText = [before: string, after: string]
+/**
+ * The code a `select` or `point` takes: `text`, starting on `line`, exactly, or from `from`,
+ * starting on it, through the first `through` after it. Without `line`, on the cursor's line.
+ */
+export type SpanTarget = {
+  file?: string
+  /** The line the code starts on, from 1. Omitted: the cursor's line. */
+  line?: number
+  text?: string
+  from?: string
+  through?: string
+}
 
 export type Action =
   | { say: string }
   | { move: MoveTarget }
-  | { select: Span }
-  | { type: TypeText }
-  | { type_fast: TypeText }
+  | { select: SpanTarget }
+  /** The text, with `▌` where the cursor ends: what's after it is typed too, and stepped back over. */
+  | { type: string }
+  | { type_fast: string }
   | { delete: true }
-  | { point: Span & { file?: string } }
+  | { point: SpanTarget }
   | { run: string; wait?: number }
 
 /** The keys that name an action. An action object has exactly one of them. */
@@ -46,15 +46,20 @@ export function actionKinds(value: object): string[] {
   return Object.keys(value).filter((k) => (ACTION_KINDS as readonly string[]).includes(k))
 }
 
+/** What's wrong with a place's `line`, if anything. */
+function lineProblem(line: unknown): string | undefined {
+  if (line === undefined || (typeof line === "number" && Number.isInteger(line) && line >= 1)) return undefined
+  return "`line` is a line number, from 1, exactly as your latest `read` or report shows it. Omit it for your cursor's line."
+}
+
 /** What's wrong with a `move`'s combination of fields, if anything. */
 export function moveProblem(m: MoveTarget): string | undefined {
   const fields = m as Record<string, unknown>
   if ("before" in fields || "after" in fields) {
     return 'A spot is one text, `at`: the text around it, with ▌ where your cursor goes, e.g. `at: "import { ▌type Context"`.'
   }
-  if (m.line !== undefined && (!Number.isInteger(m.line) || m.line < 1)) {
-    return "`line` is a line number, from 1, exactly as your latest `read` or report shows it. Omit it to stay on your cursor's line."
-  }
+  const line = lineProblem(m.line)
+  if (line) return line
   if (m.to !== undefined && m.to !== "line_end") return '`to` is `"line_end"`: the end of the line.'
   if (m.at !== undefined && m.to !== undefined) return 'Give one place on the line: `at`, or `to: "line_end"`, not both.'
   if (m.at === undefined && m.to === undefined) return 'Give the place on the line: `at`, or `to: "line_end"`.'
@@ -62,9 +67,26 @@ export function moveProblem(m: MoveTarget): string | undefined {
   return undefined
 }
 
+/** What's wrong with a `select`'s or `point`'s combination of fields, if anything. */
+export function spanProblem(span: SpanTarget): string | undefined {
+  const fields = span as Record<string, unknown>
+  if ("near_line" in fields) return "Give `line`: the line the code starts on, exactly as your latest `read` or report shows it."
+  if ("to" in fields) return "The end of a range is `through`: `from` and `through` are both texts."
+  const line = lineProblem(span.line)
+  if (line) return line
+  const range = span.from !== undefined || span.through !== undefined
+  if (span.text !== undefined && range) return "Give `text`, or `from` and `through`, not both."
+  if (range && (typeof span.from !== "string" || typeof span.through !== "string")) {
+    return "A range is `from` and `through`, both texts: from the start of `from` through the end of the first `through` after it."
+  }
+  if (!range && typeof span.text !== "string") return "Give the code: `text`, or `from` and `through`."
+  if (span.text === "" || span.from === "" || span.through === "") return "The code's text can't be empty."
+  return undefined
+}
+
 /** What's wrong with a spot's `at`, if anything: it needs exactly one cursor marker, and text around it. */
 function spotProblem(at: string): string | undefined {
-  const markers = at.split(CURSOR_MARKER).length - 1
+  const markers = markerCount(at)
   if (markers === 0) return '`at` marks where your cursor goes with ▌, e.g. `at: "import { ▌type Context"`.'
   if (markers > 1) {
     return `\`at\` has ${markers} ▌, but marks one spot: only where your cursor goes. Text copied from a report may carry the cursor's old ▌; leave that one out.`
@@ -73,16 +95,31 @@ function spotProblem(at: string): string | undefined {
   return undefined
 }
 
+/** What's wrong with the text of a `type`, if anything: it marks where the cursor ends with one ▌. */
+export function typeProblem(text: unknown): string | undefined {
+  if (Array.isArray(text)) return 'The text to type is one text, with ▌ where your cursor ends: `"f(▌)"`, or `"x▌"` with nothing after it.'
+  if (typeof text !== "string") return "Give the text to type, with ▌ where your cursor ends."
+  const markers = markerCount(text)
+  if (markers === 0) return 'Mark where your cursor ends with ▌: `"f(▌)"`, or `"x▌"` with nothing after it.'
+  if (markers > 1) return `The text to type has ${markers} ▌, but marks one place: where your cursor ends. A literal ▌ can't be typed.`
+  return undefined
+}
+
+function markerCount(text: string): number {
+  return text.split(CURSOR_MARKER).length - 1
+}
+
 export type Turn = "agent" | "user"
 
 export type BatchStatus = "completed" | "interrupted" | "failed" | "discarded"
 
 export type ErrorKind =
-  | "anchor_not_found"
-  | "anchor_ambiguous"
+  | "no_line"
+  | "not_found"
+  | "ambiguous"
   | "line_not_seen"
   | "no_selection"
-  | "no_file"
+  | "no_cursor"
   | "not_your_turn"
   | "invalid_action"
   | "command_failed"
@@ -102,7 +139,10 @@ export type RunResult = {
   shell?: string
 }
 
-/** Marks the agent cursor in a report's code. Anchors ignore it, so code can be copied from a report as is. */
+/**
+ * Marks the agent cursor: in a report's code, where a spot puts it, and where a `type` leaves it.
+ * Spans ignore it, so code can be copied from a report as is.
+ */
 export const CURSOR_MARKER = "▌"
 
 /**

@@ -17,11 +17,11 @@ describe("timing", () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
 
-    const first = await until(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["abc", ""] }]))
+    const first = await until(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "abc▌" }]))
     expect(first.batches).toEqual([])
     expect(first.submitted).toEqual({ id: 1, status: "playing" })
 
-    const secondCall = controller.step([{ type: ["d", ""] }])
+    const secondCall = controller.step([{ type: "d▌" }])
     const second = track(secondCall)
     await advance(300)
     expect(second.done).toBe(false)
@@ -50,7 +50,7 @@ describe("timing", () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
     controller.pause()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["abc", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "abc▌" }])
     await advance(2000)
     expect(editor.text("a.ts")).toBe("")
     expect(editor.state).toBe("paused")
@@ -84,7 +84,7 @@ describe("editing", () => {
   it("types with one undo stop per action and instant indentation", async () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["{\n  y\n}", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "{\n  y\n}▌" }])
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("{\n  y\n}")
     expect(editor.edits.map((e) => e.text)).toEqual(["{", "\n  ", "y", "\n", "}"])
@@ -101,7 +101,7 @@ describe("editing", () => {
     const { editor, controller } = setup({ "a.ts": "" })
     editor.crlf.add(editor.resolvePath("a.ts"))
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["a\n  b\n", ""] }, { type: ["c", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "a\n  b\n▌" }, { type: "c▌" }])
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("a\r\n  b\r\nc")
     expect(editor.edits.map((e) => e.text)).toEqual(["a", "\r\n  ", "b", "\r\n", "c"])
@@ -111,15 +111,15 @@ describe("editing", () => {
     const { editor, controller } = setup({ "a.ts": "a\nb\n" })
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["\n\n\n", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "\n\n\n▌" }])
     // As the batch will leave it: the gap's lines have numbers.
     await controller.read("a.ts")
     await until(
       controller.step([
         { move: { line: 3, to: "line_end" } },
-        { type: ["new", ""] },
+        { type: "new▌" },
         { move: { line: 1, to: "line_end" } },
-        { type: ["!", ""] },
+        { type: "!▌" },
       ]),
     )
     await until(controller.step([]))
@@ -132,14 +132,14 @@ describe("editing", () => {
     await controller.read("a.ts")
     await controller.step([
       { move: { file: "a.ts", line: 1, to: "line_end" } },
-      { type: ["\n\nif (", ")"] },
-      { type: ["x", ""] },
+      { type: "\n\nif (▌)" },
+      { type: "x▌" },
       { move: { to: "line_end" } },
-      { type: [" {\n  ", "\n}"] },
-      { type: ["f(", ", 2)"] },
-      { type: ["1", ""] },
+      { type: " {\n  ▌\n}" },
+      { type: "f(▌, 2)" },
+      { type: "1▌" },
       { move: { at: "1, ▌2" } },
-      { type: ["0 + ", ""] },
+      { type: "0 + ▌" },
     ])
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("a\n\nif (x) {\n  f(1, 0 + 2)\n}\n")
@@ -153,7 +153,7 @@ describe("editing", () => {
     await controller.start()
     for (const file of ["a.ts", "b.ts", "c.ts", "d.ts"]) {
       await controller.read(file)
-      await until(controller.step([{ move: { file, line: 1, to: "line_end" } }, { type: ["\n\nx", ""] }]))
+      await until(controller.step([{ move: { file, line: 1, to: "line_end" } }, { type: "\n\nx▌" }]))
     }
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("a\n\nx\n")
@@ -161,13 +161,13 @@ describe("editing", () => {
     expect(editor.text("c.ts")).toBe("c\n\nx\r\n")
     expect(editor.text("d.ts")).toBe("\n\nx")
     const report = await until(controller.step([{ move: { file: "a.ts", line: 4, to: "line_end" } }]))
-    expect(report.rejected?.error).toEqual({ kind: "anchor_not_found", message: "There's no line 4: a.ts has 3 lines." })
+    expect(report.rejected?.error).toEqual({ kind: "no_line", message: "There's no line 4: a.ts has 3 lines." })
   })
 
   it("types both parts of a pair, then steps back between them, in one undo stop", async () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["update(", ")"] }, { type: ["ctx, dt", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "update(▌)" }, { type: "ctx, dt▌" }])
     const report = await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("update(ctx, dt)")
     expect(report.batches[0]!.code).toEqual({ file: "a.ts", lines: [{ number: 1, text: "update(ctx, dt▌)" }], end: { final_newline: false } })
@@ -190,10 +190,10 @@ describe("editing", () => {
       await until(controller.step([]))
       return Date.now() - before
     }
-    expect(await elapsed([{ type: ["ab", ""] }])).toBeLessThan(1000)
-    expect(await elapsed([{ type: ["a", "b"] }])).toBeGreaterThanOrEqual(1000)
+    expect(await elapsed([{ type: "ab▌" }])).toBeLessThan(1000)
+    expect(await elapsed([{ type: "a▌b" }])).toBeGreaterThanOrEqual(1000)
     // type_fast scales the pause too.
-    const fast = await elapsed([{ type_fast: ["a", "b"] }])
+    const fast = await elapsed([{ type_fast: "a▌b" }])
     expect(fast).toBeGreaterThanOrEqual(100)
     expect(fast).toBeLessThan(1000)
   })
@@ -204,11 +204,11 @@ describe("editing", () => {
     await controller.read("a.ts")
     await controller.step([
       { move: { file: "a.ts", line: 1, at: "a▌\n" } },
-      { type: ["\n\n", "\n"] },
-      { type: ["f(", ")"] },
-      { type: ["x", ""] },
+      { type: "\n\n▌\n" },
+      { type: "f(▌)" },
+      { type: "x▌" },
       { move: { to: "line_end" } },
-      { type: [";", ""] },
+      { type: ";▌" },
     ])
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("a\n\nf(x);\n\nb\n")
@@ -218,7 +218,7 @@ describe("editing", () => {
     const { editor, controller } = setup({ "a.ts": "" })
     editor.crlf.add(editor.resolvePath("a.ts"))
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["{\n", "\n}"] }, { type: ["  y", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "{\n▌\n}" }, { type: "  y▌" }])
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("{\r\n  y\r\n}")
   })
@@ -227,7 +227,7 @@ describe("editing", () => {
     const { editor, controller } = setup({ "a.ts": 'import { type Context } from "./x"\nimport { a } from "./a"\n' })
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 1, at: "import { ▌type Context" } }, { type: ["type Builder, ", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, at: "import { ▌type Context" } }, { type: "type Builder, ▌" }])
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe('import { type Builder, type Context } from "./x"\nimport { a } from "./a"\n')
   })
@@ -238,7 +238,7 @@ describe("editing", () => {
     await controller.read("a.ts")
     const off = await controller.step([{ move: { file: "a.ts", line: 2, at: "}▌\n" } }])
     expect(off.rejected?.error).toEqual({
-      kind: "anchor_not_found",
+      kind: "not_found",
       message: 'The spot isn\'t on line 2: line 2 reads "  b();". It\'s on these lines:',
       candidates: [
         { line: 3, context: "}" },
@@ -247,11 +247,11 @@ describe("editing", () => {
     })
     const missing = await controller.step([{ move: { file: "a.ts", line: 2, at: "e(▌" } }])
     expect(missing.rejected?.error).toEqual({
-      kind: "anchor_not_found",
+      kind: "not_found",
       message: 'Text not found: "e("; line 2 reads "  b();"',
     })
     const twice = await controller.step([{ move: { file: "a.ts", line: 1, at: "▌ " } }])
-    expect(twice.rejected?.error).toMatchObject({ kind: "anchor_ambiguous", message: expect.stringContaining("2 times on line 1") })
+    expect(twice.rejected?.error).toMatchObject({ kind: "ambiguous", message: expect.stringContaining("2 times on line 1") })
     const report = await until(controller.step([{ move: { file: "a.ts", line: 6, at: "}▌\n" } }]))
     expect(report.rejected).toBeUndefined()
     expect((await until(controller.step([]))).batches[0]!.code?.lines.at(-1)).toEqual({ number: 6, text: "}▌" })
@@ -279,7 +279,7 @@ describe("editing", () => {
     const { editor, controller } = setup({ "a.ts": "const a = 1\n" })
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { select: { text: "1" } }, { type: ["2", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { select: { text: "1" } }, { type: "2▌" }])
     await until(controller.step([{ select: { text: "const " } }, { delete: true }]))
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("a = 2\n")
@@ -288,7 +288,7 @@ describe("editing", () => {
   it("creates a file on move and saves edited files after each batch", async () => {
     const { editor, controller } = setup()
     await controller.start()
-    await controller.step([{ move: { file: "new.ts", line: 1, to: "line_end" } }, { type_fast: ["x", ""] }])
+    await controller.step([{ move: { file: "new.ts", line: 1, to: "line_end" } }, { type_fast: "x▌" }])
     await until(controller.step([]))
     expect(editor.text("new.ts")).toBe("x")
     expect(editor.saved).toEqual([editor.resolvePath("new.ts")])
@@ -297,7 +297,7 @@ describe("editing", () => {
   it("rejects an action that combines two, instead of playing only one of them", async () => {
     const { editor, controller } = setup({ "a.ts": "x\n" })
     await controller.start()
-    const report = await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" }, type: ["y", ""] } as Action])
+    const report = await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" }, type: "y▌" } as Action])
     expect(report.rejected).toMatchObject({
       index: 1,
       error: { kind: "invalid_action", message: expect.stringContaining("`move` and `type`") },
@@ -314,7 +314,7 @@ describe("rehearsal", () => {
     const report = await controller.step([
       { say: "Here." },
       { move: { file: "a.ts", line: 2, to: "line_end" } },
-      { type: ["y", ""] },
+      { type: "y▌" },
       { move: { line: 1, at: "xy▌" } },
     ])
     expect(report).toEqual({
@@ -325,7 +325,7 @@ describe("rehearsal", () => {
         index: 4,
         action: { move: { line: 1, at: "xy▌" } },
         error: {
-          kind: "anchor_not_found",
+          kind: "not_found",
           message: expect.any(String),
           candidates: [{ line: 2, context: "xy" }],
         },
@@ -348,10 +348,10 @@ describe("rehearsal", () => {
   it("rehearses from where the queued batches leave off, and leaves them playing when it rejects", async () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["let a = 1", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "let a = 1▌" }])
 
     // Anchored on text the playing batch hasn't typed yet.
-    const secondCall = controller.step([{ select: { text: "1" } }, { type: ["2", ""] }])
+    const secondCall = controller.step([{ select: { text: "1" } }, { type: "2▌" }])
     const second = track(secondCall)
     await advance(10)
     expect(second.done).toBe(false)
@@ -361,7 +361,7 @@ describe("rehearsal", () => {
 
     // Still queued behind the second: this one's anchor would fail after the second batch.
     const rejected = await controller.step([{ select: { text: "= 1" } }])
-    expect(rejected.rejected).toMatchObject({ index: 1, error: { kind: "anchor_not_found" } })
+    expect(rejected.rejected).toMatchObject({ index: 1, error: { kind: "not_found" } })
 
     const last = await until(controller.step([]))
     expect(last.batches).toMatchObject([{ id: 2, status: "completed" }])
@@ -383,7 +383,7 @@ describe("line numbers", () => {
     const end = await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }])
     expect(end.rejected?.error.message).toMatch(/Now, line 1 reads "a"\.$/)
     expect((await until(controller.step([{ move: { file: "a.ts", line: 3, at: "c▌" } }]))).rejected).toBeUndefined()
-    expect((await until(controller.step([{ move: { line: 1, to: "line_end" } }, { type: ["!", ""] }]))).rejected).toBeUndefined()
+    expect((await until(controller.step([{ move: { line: 1, to: "line_end" } }, { type: "!▌" }]))).rejected).toBeUndefined()
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("a!\nb\nc\n")
   })
@@ -392,12 +392,12 @@ describe("line numbers", () => {
     const { editor, controller } = setup({ "a.ts": "a\nb\n" })
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["\nx", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "\nx▌" }])
     // The playing batch moves `b` from line 2 to line 3.
-    const stale = await controller.step([{ move: { line: 2, to: "line_end" } }, { type: ["!", ""] }])
+    const stale = await controller.step([{ move: { line: 2, to: "line_end" } }, { type: "!▌" }])
     expect(stale.rejected?.error).toMatchObject({ kind: "line_not_seen", message: expect.stringMatching(/line 2 reads "x"\.$/) })
     expect((await controller.read("a.ts")).lines.map((l) => l.text)).toEqual(["a", "x", "b"])
-    const next = await until(controller.step([{ move: { line: 3, to: "line_end" } }, { type: ["!", ""] }]))
+    const next = await until(controller.step([{ move: { line: 3, to: "line_end" } }, { type: "!▌" }]))
     expect(next.rejected).toBeUndefined()
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("a\nx\nb!\n")
@@ -409,14 +409,14 @@ describe("line numbers", () => {
     await controller.read("a.ts")
     const report = await controller.step([
       { move: { file: "a.ts", line: 1, to: "line_end" } },
-      { type: ["\n\nx", ""] },
+      { type: "\n\nx▌" },
       { move: { line: 2, at: "b▌" } },
     ])
     expect(report.rejected).toMatchObject({ index: 3, error: { kind: "line_not_seen", candidates: [{ line: 4, context: "b" }] } })
     // Shown where `b` is then, the whole batch again goes there.
     const again = await controller.step([
       { move: { file: "a.ts", line: 1, to: "line_end" } },
-      { type: ["\n\nx", ""] },
+      { type: "\n\nx▌" },
       { move: { line: 4, at: "b▌" } },
     ])
     expect(again.rejected).toBeUndefined()
@@ -426,11 +426,11 @@ describe("line numbers", () => {
     const { editor, controller } = setup({ "a.ts": "a\nb\nc\n" })
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 3, to: "line_end" } }, { type: ["\nd", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 3, to: "line_end" } }, { type: "\nd▌" }])
     const first = await until(controller.step([{ say: "Next, the last line." }]))
     // The line typed was never read, only shown in the report.
     expect(first.batches[0]!.code!.lines.at(-1)).toEqual({ number: 4, text: "d▌" })
-    const next = await until(controller.step([{ move: { line: 4, to: "line_end" } }, { type: ["!", ""] }]))
+    const next = await until(controller.step([{ move: { line: 4, to: "line_end" } }, { type: "!▌" }]))
     expect(next.rejected).toBeUndefined()
     await until(controller.step([]))
     expect(editor.text("a.ts")).toBe("a\nb\nc\nd!\n")
@@ -440,8 +440,8 @@ describe("line numbers", () => {
     const { controller } = setup({ "a.ts": "a\nb\n" })
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 2, to: "line_end" } }, { type: ["\nc", ""] }])
-    const first = await until(controller.step([{ move: { line: 1, to: "line_end" } }, { type: ["\nx", ""] }]))
+    await controller.step([{ move: { file: "a.ts", line: 2, to: "line_end" } }, { type: "\nc▌" }])
+    const first = await until(controller.step([{ move: { line: 1, to: "line_end" } }, { type: "\nx▌" }]))
     expect(first.batches[0]!.code!.lines.at(-1)).toEqual({ number: 3, text: "c▌" })
     // The queued batch moves `c` to line 4.
     const stale = await controller.step([{ move: { line: 3, to: "line_end" } }])
@@ -468,6 +468,84 @@ describe("line numbers", () => {
   })
 })
 
+describe("spans", () => {
+  it("selects text on the cursor's line without `line`, and on a line it was shown with one", async () => {
+    const { editor, controller } = setup({ "a.ts": "const a = 1\nconst b = 1\n" })
+    await controller.start()
+    await controller.read("a.ts")
+    await controller.step([
+      { move: { file: "a.ts", line: 1, to: "line_end" } },
+      { select: { text: "1" } },
+      { type: "2▌" },
+      { select: { line: 2, text: "1" } },
+      { type: "3▌" },
+    ])
+    await until(controller.step([]))
+    expect(editor.text("a.ts")).toBe("const a = 2\nconst b = 3\n")
+  })
+
+  it("selects a range from one text through the first match of another after it", async () => {
+    const { editor, controller } = setup({ "a.ts": "f(1, 2);\ng(3);\nh();\n" })
+    await controller.start()
+    await controller.read("a.ts")
+    await controller.step([{ select: { file: "a.ts", line: 1, from: "f(", through: ");" } }, { delete: true }])
+    await until(controller.step([{ select: { line: 2, from: "g", through: "\n" } }, { delete: true }]))
+    await until(controller.step([]))
+    expect(editor.text("a.ts")).toBe("\nh();\n")
+  })
+
+  it("selects in the file it names, moving the cursor there", async () => {
+    const { editor, controller } = setup({ "a.ts": "a\n", "b.ts": "let b = 1\n" })
+    await controller.start()
+    await controller.read("b.ts")
+    await until(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }]))
+    await until(controller.step([{ select: { file: "b.ts", line: 1, text: "1" } }, { type: "2▌" }]))
+    await until(controller.step([]))
+    expect(editor.text("b.ts")).toBe("let b = 2\n")
+    expect(editor.cursor).toMatchObject({ file: editor.resolvePath("b.ts") })
+  })
+
+  it("takes a span only on its line, saying where its text is, and one without `line` only in the cursor's file", async () => {
+    const { controller } = setup({ "a.ts": "a = 1\nb = 1\n", "b.ts": "b\n" })
+    await controller.start()
+    await controller.read("a.ts")
+    await controller.read("b.ts")
+    await until(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }]))
+    const off = await controller.step([{ point: { line: 1, text: "b = 1" } }])
+    expect(off.rejected?.error).toEqual({
+      kind: "not_found",
+      message: 'The text isn\'t on line 1: line 1 reads "a = 1". It\'s on these lines:',
+      candidates: [{ line: 2, context: "b = 1" }],
+    })
+    const elsewhere = await controller.step([{ point: { file: "b.ts", text: "b" } }])
+    expect(elsewhere.rejected?.error).toMatchObject({ kind: "invalid_action", message: expect.stringContaining("Give `line`") })
+  })
+
+  it("rejects a span on a line it hasn't been shown", async () => {
+    const { controller } = setup({ "a.ts": "a\nb\n" })
+    await controller.start()
+    const report = await controller.step([{ point: { file: "a.ts", line: 1, text: "b" } }])
+    expect(report.rejected?.error).toMatchObject({
+      kind: "line_not_seen",
+      message: expect.stringMatching(/Now, line 1 reads "a", and the text is on these lines:$/),
+      candidates: [{ line: 2, context: "b" }],
+    })
+    expect((await controller.step([{ point: { file: "a.ts", line: 2, text: "b" } }])).rejected).toBeUndefined()
+  })
+})
+
+describe("typing with ▌", () => {
+  it("rejects a text without exactly one ▌", async () => {
+    const { controller } = setup({ "a.ts": "" })
+    await controller.start()
+    const move = { move: { file: "a.ts", line: 1, to: "line_end" } } as const
+    const none = await controller.step([move, { type: "x" }])
+    expect(none.rejected).toMatchObject({ index: 2, error: { kind: "invalid_action", message: expect.stringContaining("Mark where your cursor ends") } })
+    const two = await controller.step([move, { type_fast: "f(▌)▌" }])
+    expect(two.rejected).toMatchObject({ index: 2, error: { kind: "invalid_action", message: expect.stringContaining("has 2 ▌") } })
+  })
+})
+
 describe("pointing", () => {
   const lines = Array.from({ length: 40 }, (_, i) => `line ${i + 1}`).join("\n")
 
@@ -476,10 +554,10 @@ describe("pointing", () => {
     await controller.start()
     await controller.read("a.ts")
     await until(controller.step([{ move: { file: "a.ts", line: 2, at: "line 2▌\n" } }]))
-    await until(controller.step([{ point: { text: "line 35" } }, { say: "This one." }]))
+    await until(controller.step([{ point: { line: 35, text: "line 35" } }, { say: "This one." }]))
     expect(editor.focus).toBe("point")
     expect(editor.point).toBeDefined()
-    await until(controller.step([{ type: ["!", ""] }]))
+    await until(controller.step([{ type: "!▌" }]))
     await until(controller.step([]))
     expect(editor.focus).toBe("cursor")
     expect(editor.text("a.ts")).toContain("line 2!")
@@ -500,17 +578,18 @@ describe("pointing", () => {
       await until(controller.step([]))
       return Date.now() - before
     }
-    expect(await elapsed([{ point: { text: "line 35" } }, { type: ["x", ""] }])).toBeGreaterThanOrEqual(1000)
-    expect(await elapsed([{ point: { text: "line 4\n" } }, { type: ["y", ""] }])).toBeLessThan(1000)
+    expect(await elapsed([{ point: { line: 35, text: "line 35" } }, { type: "x▌" }])).toBeGreaterThanOrEqual(1000)
+    expect(await elapsed([{ point: { line: 4, text: "line 4\n" } }, { type: "y▌" }])).toBeLessThan(1000)
   })
 
   it("shows another file for a point, and the cursor's file again with the next edit", async () => {
     const { editor, controller } = setup({ "a.ts": "a\n", "b.ts": "b\n" })
     await controller.start()
     await controller.read("a.ts")
+    await controller.read("b.ts")
     await until(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }]))
-    await until(controller.step([{ point: { text: "b", file: "b.ts" } }, { say: "Over there." }]))
-    await until(controller.step([{ type: ["x", ""] }]))
+    await until(controller.step([{ point: { file: "b.ts", line: 1, text: "b" } }, { say: "Over there." }]))
+    await until(controller.step([{ type: "x▌" }]))
     await until(controller.step([]))
     expect(editor.shown).toEqual([editor.resolvePath("a.ts"), editor.resolvePath("b.ts"), editor.resolvePath("a.ts")])
     expect(editor.text("a.ts")).toBe("ax\n")
@@ -520,12 +599,15 @@ describe("pointing", () => {
     const { editor, controller } = setup({ "a.ts": "a\n", "b.ts": "b\n" })
     await controller.start()
     await controller.read("a.ts")
+    await controller.read("b.ts")
     await until(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }]))
     await until(controller.step([]))
     controller.takeTurn()
     await until(controller.listen())
-    await until(controller.step([{ point: { text: "b", file: "b.ts" } }]))
+    const pointed = await until(controller.step([{ point: { file: "b.ts", line: 1, text: "b" } }]))
+    expect(pointed.rejected).toBeUndefined()
     await until(controller.step([]))
+    expect(editor.point).toMatchObject({ file: editor.resolvePath("b.ts") })
     expect(editor.focus).toBe("cursor")
     expect(editor.shown).toEqual([editor.resolvePath("a.ts")])
   })
@@ -534,7 +616,7 @@ describe("pointing", () => {
     const { editor, controller } = setup({ "a.ts": lines })
     await controller.start()
     await controller.read("a.ts")
-    await until(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { point: { text: "line 35" } }]))
+    await until(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { point: { line: 35, text: "line 35" } }]))
     await until(controller.step([]))
     controller.pause()
     controller.resume()
@@ -550,7 +632,7 @@ describe("reports", () => {
     await controller.read("a.ts")
     await controller.step([
       { move: { file: "a.ts", line: 7, at: "c▌\n" } },
-      { type: ["\n  x", ""] },
+      { type: "\n  x▌" },
       { move: { line: 5, at: "a▌\n" } },
     ])
     const report = await until(controller.step([]))
@@ -590,7 +672,7 @@ describe("reports", () => {
       end: { final_newline: true },
     })
     // Typing a newline at the end of a file without one leaves the cursor after it.
-    const missing = await until(controller.step([{ move: { file: "b.ts", line: 2, to: "line_end" } }, { type: ["\n", ""] }]))
+    const missing = await until(controller.step([{ move: { file: "b.ts", line: 2, to: "line_end" } }, { type: "\n▌" }]))
     expect(missing.batches[0]!.code).toEqual({
       file: "b.ts",
       lines: [
@@ -616,7 +698,7 @@ describe("reports", () => {
     const { controller } = setup({ "a.ts": "" })
     await controller.start()
     const body = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`).join("\n")
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type_fast: [body, ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type_fast: `${body}▌` }])
     const report = await until(controller.step([]))
     const numbers = report.batches[0]!.code!.lines.map((l) => l.number)
     expect(numbers.length).toBeLessThanOrEqual(41)
@@ -650,28 +732,29 @@ describe("reports", () => {
   it("returns what's left of a type cut inside its second part", async () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["f(", ") {}"] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "f(▌) {}" }])
     // 100 ms before the move, then 100 ms per character: into the second part, after ") ".
     await advance(100 + 4 * 100 + 50)
     expect(editor.text("a.ts")).toBe("f() ")
     controller.userInterrupt()
     const report = await until(controller.listen())
-    expect(report.batches[0]).toMatchObject({ status: "interrupted", unplayed: [{ type: ["", "{}"] }] })
+    expect(report.batches[0]).toMatchObject({ status: "interrupted", unplayed: [{ type: "▌{}" }] })
   })
 
-  it("rejects a batch that works in more than one file, without queueing it", async () => {
-    const { controller } = setup({ "a.ts": "", "b.ts": "" })
+  it("rejects a batch that works in more than one file at the action that switches, queueing nothing of it", async () => {
+    const { controller } = setup({ "a.ts": "", "b.ts": "x" })
     await controller.start()
-    await expect(controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { point: { text: "x", file: "b.ts" } }])).rejects.toMatchObject({
-      code: "invalid_arguments",
-      message: expect.stringContaining("a.ts and b.ts"),
-    })
-    await expect(
-      controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["x", ""] }, { move: { file: "a.ts", line: 1, to: "line_end" } }]),
-    ).resolves.toBeDefined()
-    await expect(controller.step([{ type: ["y", ""] }, { move: { file: "b.ts", line: 1, to: "line_end" } }])).rejects.toMatchObject({
-      code: "invalid_arguments",
-      message: expect.stringContaining("before the batch's first edit"),
+    await controller.read("b.ts")
+    const two = await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { point: { file: "b.ts", line: 1, text: "x" } }])
+    expect(two.rejected).toMatchObject({ index: 2, error: { kind: "invalid_action", message: expect.stringContaining("a.ts and b.ts") } })
+    // Naming its file again is fine.
+    const same = await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "x▌" }, { move: { file: "a.ts", to: "line_end" } }])
+    expect(same.rejected).toBeUndefined()
+    const late = await controller.step([{ type: "y▌" }, { select: { file: "b.ts", line: 1, text: "x" } }])
+    expect(late.rejected).toMatchObject({
+      index: 2,
+      error: { kind: "invalid_action", message: expect.stringContaining("before the batch's first edit") },
+      code: { file: "a.ts", lines: [{ number: 1, text: "xy▌" }] },
     })
   })
 })
@@ -680,8 +763,8 @@ describe("interruptions", () => {
   it("shows the code as far as it got, returns the rest of the cut action, and discards the queued batch", async () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["hello world", ""] }])
-    const second = controller.step([{ type: ["!", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "hello world▌" }])
+    const second = controller.step([{ type: "!▌" }])
 
     await advance(450)
     expect(editor.text("a.ts")).toBe("hel")
@@ -694,9 +777,9 @@ describe("interruptions", () => {
           id: 1,
           status: "interrupted",
           code: { file: "a.ts", lines: [{ number: 1, text: "hel▌" }], end: { final_newline: false } },
-          unplayed: [{ type: ["lo world", ""] }],
+          unplayed: [{ type: "lo world▌" }],
         },
-        { id: 2, status: "discarded", unplayed: [{ type: ["!", ""] }] },
+        { id: 2, status: "discarded", unplayed: [{ type: "!▌" }] },
       ],
       events: [{ kind: "message", text: "use zod" }],
       turn: "agent",
@@ -708,18 +791,18 @@ describe("interruptions", () => {
   it("discards a batch planned before an interruption the agent hasn't seen", async () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["ab", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "ab▌" }])
     await advance(1000)
     controller.userInterrupt()
 
-    const stale = await controller.step([{ type: ["c", ""] }])
+    const stale = await controller.step([{ type: "c▌" }])
     expect(stale.batches.map((b) => [b.id, b.status])).toEqual([
       [1, "completed"],
       [2, "discarded"],
     ])
     expect(stale.events).toEqual([{ kind: "interrupt" }])
 
-    const fresh = await controller.step([{ type: ["c", ""] }])
+    const fresh = await controller.step([{ type: "c▌" }])
     expect(fresh.submitted).toEqual({ id: 3, status: "playing" })
     await advance(500)
     expect(editor.text("a.ts")).toBe("abc")
@@ -746,11 +829,11 @@ describe("interruptions", () => {
     const { editor, controller } = setup({ "a.ts": "hello\n", "package.json": "{}\n" })
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["abc", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "abc▌" }])
     await advance(200)
     editor.otherEdit("package.json", 1, 0, '"x": 1')
 
-    const report = await until(controller.step([{ type: ["d", ""] }]))
+    const report = await until(controller.step([{ type: "d▌" }]))
     expect(report.batches).toMatchObject([{ id: 1, status: "completed" }])
     expect(report.events).toEqual([{ kind: "edit", file: "package.json", diff: expect.stringContaining('+{"x": 1}'), by: "other" }])
     await until(controller.step([]))
@@ -769,8 +852,8 @@ describe("interruptions", () => {
     const { editor, controller } = setup({ "a.ts": "hello\n" })
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["abc", ""] }])
-    const queued = track(controller.step([{ type: ["d", ""] }]))
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "abc▌" }])
+    const queued = track(controller.step([{ type: "d▌" }]))
     await advance(200)
     // A formatter, say.
     editor.otherEdit("a.ts", 0, 0, "// formatted\n")
@@ -779,7 +862,7 @@ describe("interruptions", () => {
     expect(queued.value!.events).toEqual([{ kind: "edit", file: "a.ts", diff: expect.stringContaining("+// formatted"), by: "other" }])
     expect(queued.value!.batches).toMatchObject([
       { id: 1, status: "interrupted" },
-      { id: 2, status: "discarded", unplayed: [{ type: ["d", ""] }] },
+      { id: 2, status: "discarded", unplayed: [{ type: "d▌" }] },
     ])
     // As far as the interrupted batch got, and nothing of the discarded one.
     expect(editor.text("a.ts")).toMatch(/^\/\/ formatted\nhello(a|ab|abc)?\n$/)
@@ -797,8 +880,8 @@ describe("interruptions", () => {
     }
     await controller.start()
     await controller.read("a.ts")
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["abc", ""] }])
-    const report = await until(controller.step([{ type: ["d", ""] }]))
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "abc▌" }])
+    const report = await until(controller.step([{ type: "d▌" }]))
     expect(report.batches).toMatchObject([
       { id: 1, status: "completed" },
       { id: 2, status: "discarded" },
@@ -831,7 +914,7 @@ describe("turns", () => {
     expect(taken.turn).toBe("user")
     expect(taken.events).toEqual([{ kind: "turn", to: "user" }])
 
-    const refused = await controller.step([{ type: ["x", ""] }])
+    const refused = await controller.step([{ type: "x▌" }])
     expect(refused.rejected).toMatchObject({ error: { kind: "not_your_turn" } })
 
     await controller.step([{ point: { text: "<=" } }, { say: "Careful, this goes one past the end." }])
@@ -880,9 +963,9 @@ describe("cancellation", () => {
   it("keeps a cancelled step's batch queued and reports it later", async () => {
     const { editor, controller } = setup({ "a.ts": "" })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["ab", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "ab▌" }])
     const abort = new AbortController()
-    const second = track(controller.step([{ type: ["c", ""] }], abort.signal))
+    const second = track(controller.step([{ type: "c▌" }], abort.signal))
     await advance(10)
     expect(second.done).toBe(false)
     abort.abort()
@@ -920,7 +1003,7 @@ describe("sessions", () => {
   it("plays out the queue when the agent ends, then allows a new session", async () => {
     const { editor, panel, controller } = setup({ "a.ts": "" })
     await controller.start("first")
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["abc", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "abc▌" }])
     const final = await until(controller.end("Done."))
     expect(final.batches).toMatchObject([{ id: 1, status: "completed" }])
     expect(editor.text("a.ts")).toBe("abc")
@@ -953,8 +1036,8 @@ describe("sessions", () => {
     await controller.start()
     await controller.read("a.ts")
     const lines = async (file: string) => (await controller.read(file)).lines.map((l) => l.text)
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["\nbc", ""] }])
-    const queued = controller.step([{ type: ["\nd", ""] }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "\nbc▌" }])
+    const queued = controller.step([{ type: "\nd▌" }])
     await advance(10)
     expect(editor.text("a.ts")).toBe("a\n")
     expect(await lines("a.ts")).toEqual(["a", "bc", "d"])
@@ -971,7 +1054,7 @@ describe("sessions", () => {
     editor.resolvePath = (file) => nodePath.resolve("/project", file).toLowerCase()
     await controller.start(undefined, "/Project")
     const file = nodePath.resolve("/Project", "A.ts").toLowerCase()
-    await controller.step([{ move: { file: "A.ts", line: 1, to: "line_end" } }, { type: ["abc", ""] }])
+    await controller.step([{ move: { file: "A.ts", line: 1, to: "line_end" } }, { type: "abc▌" }])
     const listening = controller.listen()
     await advance(1000)
     editor.files.set(file, "XXabc")
@@ -1062,7 +1145,7 @@ describe("run", () => {
   it("saves what the batch has typed before running a command, so the command reads it from disk", async () => {
     const { editor, controller } = setup({ "a.ts": "" }, { confirmCommands: false })
     await controller.start()
-    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: ["x", ""] }, { run: "tsc" }])
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: "x▌" }, { run: "tsc" }])
     await until(controller.step([]))
     expect(editor.commands).toMatchObject([{ command: "tsc", unsaved: [] }])
     expect(editor.saved).toContain(editor.resolvePath("a.ts"))

@@ -159,16 +159,16 @@ config and markup, with `type_fast`, in every language.
   close at once, in the same `type`, then fill it in, then step past the
   close and go on. Brackets and quotes have closes, and so do blocks, however
   the language spells them: `}` for `{`, `end` for `begin` or `do`, `fi` for
-  `then`, a closing tag, `*/`. That's what the two parts of `type` are for:
-  `before` stops where the thing opens, `after` is its close, and your cursor
-  lands between them: `["f(", ")"]`, then `["x", ""]`. Never `["f(x", ")"]`,
-  and never `["f(x)", ""]`: both show an open parenthesis while its contents
-  are typed.
-- **`after` is only the close.** What comes after the close isn't part of
-  it: not the rest of an expression, not a `;`, not the block after a
+  `then`, a closing tag, `*/`. That's what the `▌` in a `type` is for: it's
+  where your cursor ends. The text before it stops where the thing opens,
+  the text after it is its close, and your cursor lands between them:
+  `"f(▌)"`, then `"x▌"`. Never `"f(x▌)"`, and never `"f(x)▌"`: both show an
+  open parenthesis while its contents are typed.
+- **After the `▌` is only the close.** What comes after the close isn't part
+  of it: not the rest of an expression, not a `;`, not the block after a
   condition. You type it when you get there, after stepping past the close.
-  An empty pair is typed whole, like `listTodos()` or `= []`, and when
-  `before` opens nothing, `after` is `""`.
+  An empty pair is typed whole, like `listTodos()` or `= []`, and when the
+  text opens nothing, the `▌` is at its end: `"x▌"`.
 - **Step past the close** once it's filled, with a `move` on your cursor's
   line, without `line`: `{ to: "line_end" }` if the close is the last thing
   on the line, or a spot right after it, like `{ at: "'/todos'▌, " }`, if
@@ -178,22 +178,22 @@ config and markup, with `type_fast`, in every language.
 - **`to: "line_end"` is the end of the line your cursor is on, not the
   close you typed.** It knows nothing about your `type`s: it steps past a
   close only if that close is on your cursor's line. Know where your cursor
-  is before you use it. After `[" {\n  ", "\n}"]` and the block's body, your
+  is before you use it. After `" {\n  ▌\n}"` and the block's body, your
   cursor is on the body's last line, and the `}` is on the line below:
   `to: "line_end"` goes to the end of the body's line, still inside the
-  block. After `["f(", ")"]` and `["x", ""]`, the `)` is on your line, so
+  block. After `"f(▌)"` and `"x▌"`, the `)` is on your line, so
   `to: "line_end"` steps past it.
-- **Start new lines at the end of the line above**, `["\n  …", ""]`, never at
+- **Start new lines at the end of the line above**, `"\n  …▌"`, never at
   the start of a line with code on it: that code would slide right with every
   character you type. At the very top of a file, make an empty line first:
-  `["", "\n"]` at the file's start.
+  `"▌\n"` at the file's start.
 - **Blank lines.** Separate definitions with one blank line, and leave one
   newline at the end of the file, no more. To add a definition after
-  another, go to the end of the one above and start with `["\n\n…", …]`: a
+  another, go to the end of the one above and start with `"\n\n…"`: a
   blank line, then your new line. The blank line that followed the one above
   now separates yours from the next. At the end of a file, it's the same:
   the end of the last line. A new file starts with its final newline:
-  `["", "\n"]`.
+  `"▌\n"`.
 - **After an interruption, close what's open first.** If a batch stopped
   partway through a `type`, the report's code shows what's on screen, and
   what's left of the `type` comes first in what didn't play; your first edit
@@ -203,24 +203,24 @@ An `if` inside a function: the condition's parentheses, the condition, then
 the block. The moves stay on your cursor's line, so they need no `line`:
 
 ```
-type   ["\n  if (", ")"]                 if (▌)
-type   ["x < 0", ""]                     if (x < 0▌)
+type   "\n  if (▌)"                      if (▌)
+type   "x < 0▌"                          if (x < 0▌)
 move   to: "line_end"                    if (x < 0)▌
-type   [" {\n    ", "\n  }"]             the block, your cursor on its first line
-type   ["return 0;", ""]
+type   " {\n    ▌\n  }"                  the block, your cursor on its first line
+type   "return 0;▌"
 ```
 
-The same in Ruby: `["\n  if x < 0\n    ", "\n  end"]`, where the block's close
+The same in Ruby: `"\n  if x < 0\n    ▌\n  end"`, where the block's close
 is `end`, and nothing else has one. In Python a block has no close at all, so
-`after` is `""`.
+nothing follows the `▌`.
 
 An expression that goes on after a parenthesis:
 
 ```
-type   ["\n  const total = (", ")"]      const total = (▌)
-type   ["x + y", ""]                     const total = (x + y▌)
+type   "\n  const total = (▌)"           const total = (▌)
+type   "x + y▌"                          const total = (x + y▌)
 move   to: "line_end"                    const total = (x + y)▌
-type   [" * SCALE;", ""]
+type   " * SCALE;▌"
 ```
 
 A function after another, separated by a blank line, where your `read` showed
@@ -228,32 +228,32 @@ the `}` of the function above on line 24:
 
 ```
 move   line: 24, at: "}▌"                right after the function above
-type   ["\n\nfunction update(", ")"]      a blank line, the new line, its parameters' parentheses
-type   ["dt", ""]
+type   "\n\nfunction update(▌)"           a blank line, the new line, its parameters' parentheses
+type   "dt▌"
 move   to: "line_end"                    past ")"
-type   [" {\n  ", "\n}"]                 the body
-type   ["state.time += dt;", ""]
+type   " {\n  ▌\n}"                      the body
+type   "state.time += dt;▌"
 ```
 
 An import below another, with a string, and the `;` after it:
 
 ```
 move   line: 1, at: 'import express from "express";▌'
-type_fast ["\nimport { ", " }"]
-type_fast ["createTodo", ""]
+type_fast "\nimport { ▌ }"
+type_fast "createTodo▌"
 move   to: "line_end"
-type_fast [' from "', '"']
-type_fast ["./todos", ""]
+type_fast ' from "▌"'
+type_fast "./todos▌"
 move   to: "line_end"
-type_fast [";", ""]
+type_fast ";▌"
 ```
 
 ## Using the tools
 
 - **One idea per batch**: usually a `say` and the few edits it describes.
   Small batches keep the programmer able to steer.
-- **One file per batch.** Name the file in the batch's first `move`; to
-  continue in another file, start a new batch.
+- **One file per batch.** Name the file in the batch's first `move`,
+  `select` or `point`; to continue in another file, start a new batch.
 - `step` returns the report of the *previous* batch. Plan the next batch while
   the current one plays.
 - **Check the code in each report.** It shows what each batch produced, with
@@ -303,9 +303,12 @@ type_fast [";", ""]
   on it: `line: 24, at: "}▌"` is right after the brace on line 24.
   `to: "line_end"` can't be checked, so on another line than your cursor's,
   prefer a spot.
-- **`select` and `point` take the text itself**, long enough to be unique,
-  and `near_line` whenever you know the line: of several matches, the one
-  closest to it is taken.
+- **`select` and `point` take the code's text**, starting on `line`, the
+  same way: exactly, as a `read` or report showed it, or your cursor's line
+  without it. The text only has to be unique on its line. For a range,
+  `from` a text on the line `through` the first match of another after it:
+  `{ line: 12, from: "function update(", through: "\n}" }` is the whole
+  function.
 
 ### When the programmer steps in
 
@@ -345,7 +348,7 @@ type_fast [";", ""]
 - Reading the code aloud instead of explaining it.
 - Talking about code before pointing at it.
 - Typing something that has a close with its close last, or putting what
-  comes after the close into `after`.
+  comes after the close after the `▌`.
 - Asking permission for every step.
 - Overwriting or reverting the programmer's edits.
 
@@ -385,26 +388,26 @@ say    "The plan: a Todo type and a small in-memory store in todos.ts, then
 say    "First, the shape of a todo: an interface with an id, a title, and
         whether it's done."
 move   file: src/todos.ts, line: 1, to: "line_end"
-type   ["", "\n"]
-type   ["export interface Todo {\n  ", "\n}"]
-type   ["id: number;\n  title: string;\n  done: boolean;", ""]
+type   "▌\n"
+type   "export interface Todo {\n  ▌\n}"
+type   "id: number;\n  title: string;\n  done: boolean;▌"
        (`read` src/todos.ts: the interface's `}` is on line 5)
 say    "The store is just an array and a counter for ids. `createTodo` is what
         the routes will call."
 move   line: 5, to: "line_end"
-type   ["\n\nconst todos: Todo[] = [];\nlet nextId = 1;\n\nexport function createTodo(", ")"]
-type   ["title: string", ""]
+type   "\n\nconst todos: Todo[] = [];\nlet nextId = 1;\n\nexport function createTodo(▌)"
+type   "title: string▌"
 move   to: "line_end"
-type   [": Todo {\n  ", "\n}"]
+type   ": Todo {\n  ▌\n}"
 say    "It takes the next id, pushes the new todo onto the array, and returns
         it, so the route can send it straight back."
-type   ["const todo = { ", " }"]
-type   ["id: nextId++, title, done: false", ""]
+type   "const todo = { ▌ }"
+type   "id: nextId++, title, done: false▌"
 move   to: "line_end"
-type   [";\n  todos.push(", ")"]
-type   ["todo", ""]
+type   ";\n  todos.push(▌)"
+type   "todo▌"
 move   to: "line_end"
-type   [";\n  return todo;", ""]
+type   ";\n  return todo;▌"
 ```
 
 *Only what the first path needs. The new file gets its final newline first.
@@ -422,38 +425,38 @@ before it's typed. `createTodo` is filled in right away, not left as a stub.*
 say    "Now the route. In Express, a route is an HTTP method, a path, and a
         handler that receives the request and the response."
 move   file: src/server.ts, line: 4, at: "app.use(express.json());▌"
-type   ["\n\napp.post(", ")"]
-type   ['"', '"']
-type   ["/todos", ""]
+type   "\n\napp.post(▌)"
+type   '"▌"'
+type   "/todos▌"
 move   at: '"/todos"▌)'
-type   [", (", ")"]
-type   ["req, res", ""]
+type   ", (▌)"
+type   "req, res▌"
 move   at: "(req, res)▌)"
-type   [" => {\n  ", "\n}"]
+type   " => {\n  ▌\n}"
 say    "`express.json()` above is what parses the body, so `req.body` is an
         object here. We create the todo and answer 201 Created with it as JSON."
-type   ["const todo = createTodo(", ")"]
-type   ["req.body.title", ""]
+type   "const todo = createTodo(▌)"
+type   "req.body.title▌"
 move   to: "line_end"
-type   [";\n  res.status(", ")"]
-type   ["201", ""]
+type   ";\n  res.status(▌)"
+type   "201▌"
 move   to: "line_end"
-type   [".json(", ")"]
-type   ["todo", ""]
+type   ".json(▌)"
+type   "todo▌"
 move   to: "line_end"
-type   [";", ""]
+type   ";▌"
        (`read` src/server.ts: the handler's "})" is on line 9)
 move   line: 9, to: "line_end"
-type   [";", ""]
+type   ";▌"
 say    "We need to import createTodo."
 move   line: 1, at: 'import express from "express";▌'
-type_fast ["\nimport { ", " }"]
-type_fast ["createTodo", ""]
+type_fast "\nimport { ▌ }"
+type_fast "createTodo▌"
 move   to: "line_end"
-type_fast [' from "', '"']
-type_fast ["./todos", ""]
+type_fast ' from "▌"'
+type_fast "./todos▌"
 move   to: "line_end"
-type_fast [";", ""]
+type_fast ";▌"
 say    "Let me start the server and send a request."
        (background: runs the server, curl -X POST ...)
 say    "It answered 201 with the new todo, id 1. Creating works."
@@ -476,18 +479,16 @@ and says what happened: something just became real.*
 say    "I see you renamed title to text. I'll update createTodo and the POST
         route to match."
        (background: `read` src/todos.ts and src/server.ts)
-move   file: src/todos.ts, line: 10, at: "▌export function createTodo("
-select text: "title: string"
-type   ["text: string", ""]
-select text: "title, done"
-type   ["text, done", ""]
+select file: src/todos.ts, line: 10, text: "title: string"
+type   "text: string▌"
+select line: 11, text: "title, done"
+type   "text, done▌"
 ```
 
 ```
 say    "And the route reads it from the body."
-move   file: src/server.ts, line: 8, at: "▌req.body.title"
-select text: "req.body.title"
-type   ["req.body.text", ""]
+select file: src/server.ts, line: 8, text: "req.body.title"
+type   "req.body.text▌"
 ```
 
 *Acknowledges, reads the code as it is now, builds on the programmer's edit,

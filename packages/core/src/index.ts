@@ -13,7 +13,7 @@ export type {
   RunOptions,
   SharedSelection,
 } from "./ports"
-export { resolveAnchor, resolveSpan, resolveSpot } from "./anchors"
+export { resolveSpan, resolveSpot } from "./places"
 export { terminalText } from "./text"
 export { hostPathStyle, samePath, withinFolder, type PathStyle } from "./paths"
 export { planTyping, readingTime } from "./typing"

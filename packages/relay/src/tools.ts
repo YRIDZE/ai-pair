@@ -1,23 +1,42 @@
 // The MCP tool definitions: schemas and the descriptions the agent reads at the point of use.
 
 import { z } from "zod"
-import { ACTION_KINDS, actionKinds, moveProblem, type MoveTarget } from "@ai-pair/protocol"
+import { ACTION_KINDS, actionKinds, moveProblem, spanProblem, typeProblem, type MoveTarget, type SpanTarget } from "@ai-pair/protocol"
 
-const nearLine = z
+const file = z.string().describe("Path relative to your working directory, or absolute.")
+const line = z
   .number()
   .int()
   .optional()
-  .describe("The line the text starts at, from your latest `read` or report. Give it whenever you know it: of several matches, the one closest to it is taken.")
-const Anchor = z.strictObject({
-  text: z.string().describe("Exact text; may span lines. Long enough to occur only once, e.g. a whole line."),
-  near_line: nearLine,
+  .describe(
+    "The line exactly as an up-to-date `read` or report shows it: the one your cursor lands on, or the code starts on. Never count lines or guess: if you haven't seen the line's number since your batches last changed the lines above it, `read` first. A number you haven't been shown for that line is rejected. Omit it for your cursor's line.",
+  )
+const inFile = file
+  .optional()
+  .describe("Switch to this file, only before your batch's first edit. Omit it to stay in your cursor's file.")
+
+/** A `select`'s or `point`'s code: its text on a line, or a range. */
+const Span = z
+  .strictObject(
+    {
+      file: inFile,
+      line,
+      text: z.string().optional().describe("The code's exact text, starting on `line`; it may go on past it. Enough of it to be unique on its line."),
+      from: z.string().optional().describe("Instead of `text`, for a range: the exact text it starts with, on `line`."),
+      through: z.string().optional().describe("With `from`: the range ends with the first match of this text after `from`."),
+    },
+    { error: (issue) => (issue.code === "unrecognized_keys" ? spanProblem(issue.input as SpanTarget) : undefined) },
+  )
+  .superRefine((span, ctx) => {
+    const problem = spanProblem(span)
+    if (problem) ctx.addIssue({ code: "custom", message: problem })
+  })
+
+/** The text to type, with ▌ where the cursor ends. */
+const typeText = z.string({ error: (issue) => typeProblem(issue.input) }).superRefine((text, ctx) => {
+  const problem = typeProblem(text)
+  if (problem) ctx.addIssue({ code: "custom", message: problem })
 })
-const Range = z.strictObject({
-  from: Anchor,
-  to: z.strictObject({ text: z.string().describe("Exact text; its first match after `from` ends the range.") }),
-})
-const file = z.string().describe("Path relative to your working directory, or absolute.")
-const typeText = z.tuple([z.string(), z.string()])
 
 const Action = z.union([
   action({
@@ -30,14 +49,8 @@ const Action = z.union([
   action({
     move: z
       .strictObject({
-        file: file.optional().describe("Switch to this file (created empty if it doesn't exist). Omit to stay in the current file."),
-        line: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            "The line your cursor lands on, exactly as an up-to-date `read` or report shows it. Never count lines or guess: if you haven't seen the line's number since your batches last changed the lines above it, `read` first. A number you haven't been shown for that line is rejected. Omit it to stay on your cursor's line.",
-          ),
+        file: file.optional().describe("Switch to this file (created empty if it doesn't exist), only before your batch's first edit. Omit it to stay in your cursor's file."),
+        line,
         at: z
           .string()
           .optional()
@@ -60,15 +73,13 @@ const Action = z.union([
       ),
   }),
   action({
-    select: z
-      .union([Anchor, Range])
-      .describe(
-        "Select an anchor's match, or from the start of `from` to the end of the first `to` after it, so the programmer sees what's about to change.",
-      ),
+    select: Span.describe(
+      "Select code, so the programmer sees what's about to change: its `text`, starting on `line`, exactly (without `line`, your cursor's line), or a range, `from` a text on it `through` the first match of another after it. Your cursor ends at its end.",
+    ),
   }),
   action({
     type: typeText.describe(
-      "`[before, after]`: types `before`, then `after`, at a human pace, then steps your cursor back to between them. Replaces the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. The programmer watches every keystroke, and every second they see an unclosed bracket, parenthesis, quote or block is a second of suffering for them, so close each one the moment you open it, always, however short: `[\"f(\", \")\"]` then `[\"x\", \"\"]`, never `[\"f(x)\", \"\"]`. Type left to right, except that whatever has a close gets its close first: when `before` opens a bracket, a quote or a block (however the language spells it: `{`, `begin`, `then`, `do`, a tag, a block comment), `after` is its close and nothing more. Fill it, step past its close (a `move` to the end of its line, or to a spot right after it; `to: \"line_end\"` is only the end of your cursor's line, so it doesn't step past a block's close on the line below), and type what follows there: `[\"if (\", \")\"]`, `[\"x < 0\", \"\"]`, `to: \"line_end\"`, `[\" {\\n    \", \"\\n  }\"]`, then the body; `[\"(\", \")\"]`, `[\"x + y\", \"\"]`, `to: \"line_end\"`, `[\" * SCALE;\", \"\"]`. `after` is `\"\"` when `before` opens nothing. Start new lines at the end of the line above, never where code follows on the line: it would slide right as you type. Separate definitions with one blank line, `[\"\\n\\n…\", …]` at the end of the one above, and leave one newline at the end of the file.",
+      "The text, with ▌ where your cursor ends: all of it is typed at a human pace, then your cursor steps back to the ▌. Replaces the selection if there is one. Inserted literally: include newlines and indentation yourself; nothing is auto-closed. The default for anything the programmer should read. The programmer watches every keystroke, and every second they see an unclosed bracket, parenthesis, quote or block is a second of suffering for them, so close each one the moment you open it, always, however short: `\"f(▌)\"` then `\"x▌\"`, never `\"f(x)▌\"`. Type left to right, except that whatever has a close gets its close first: when the text before ▌ opens a bracket, a quote or a block (however the language spells it: `{`, `begin`, `then`, `do`, a tag, a block comment), what's after ▌ is its close and nothing more. Fill it, step past its close (a `move` to the end of its line, or to a spot right after it; `to: \"line_end\"` is only the end of your cursor's line, so it doesn't step past a block's close on the line below), and type what follows there: `\"if (▌)\"`, `\"x < 0▌\"`, `to: \"line_end\"`, `\" {\\n    ▌\\n  }\"`, then the body; `\"(▌)\"`, `\"x + y▌\"`, `to: \"line_end\"`, `\" * SCALE;▌\"`. Nothing follows ▌ when the text opens nothing. Start new lines at the end of the line above, never where code follows on the line: it would slide right as you type. Separate definitions with one blank line, `\"\\n\\n…\"` at the end of the one above, and leave one newline at the end of the file.",
     ),
   }),
   action({
@@ -78,11 +89,9 @@ const Action = z.union([
   }),
   action({ delete: z.literal(true).describe("Delete the current selection; `select` first.") }),
   action({
-    point: z
-      .union([Anchor.extend({ file: file.optional() }), Range.extend({ file: file.optional() })])
-      .describe(
-        "Highlight code without editing it or moving your cursor, to talk about it: point first, then `say` what's there. The programmer's view goes to the pointed code, and comes back to your cursor with your next move or edit.",
-      ),
+    point: Span.describe(
+      "Highlight code without editing it or moving your cursor, to talk about it: point first, then `say` what's there. The code is given as for `select`. The programmer's view goes to the pointed code, and comes back to your cursor with your next move or edit.",
+    ),
   }),
   action({
     run: z
@@ -106,9 +115,13 @@ function actionError(issue: { input?: unknown }): string | undefined {
   const kinds = actionKinds(input)
   if (kinds.length === 0) return `Not an action: each action has one of ${ACTION_KINDS.map((k) => `\`${k}\``).join(", ")}`
   if (kinds.length > 1) return combined(input)
-  // A move with a malformed line fails on the line's type, before `moveProblem` gets to say what's wrong.
+  // A malformed field fails on its type, before the action's own check gets to say what's wrong.
   const move: unknown = "move" in input ? input.move : undefined
   if (typeof move === "object" && move !== null) return moveProblem(move as MoveTarget)
+  const span: unknown = "select" in input ? input.select : "point" in input ? input.point : undefined
+  if (typeof span === "object" && span !== null) return spanProblem(span as SpanTarget)
+  if ("type" in input) return typeProblem(input.type)
+  if ("type_fast" in input) return typeProblem(input.type_fast)
   return undefined
 }
 
@@ -128,11 +141,11 @@ export const TOOLS = {
     },
   },
   step: {
-    description: `Submit a batch of visible actions, played in the programmer's editor at a human pace. A batch is one idea: usually a \`say\` explaining what's next, then the few edits it describes. A batch works in one file: name it (in \`move\` or \`point\`) before its first edit, and start a new batch to switch files.
+    description: `Submit a batch of visible actions, played in the programmer's editor at a human pace. A batch is one idea: usually a \`say\` explaining what's next, then the few edits it describes. A batch works in one file: name it (in \`move\`, \`select\` or \`point\`) before its first edit, and start a new batch to switch files.
 
 Pipelined: the call queues the batch and returns once the PREVIOUS batch has finished playing, with that batch's report. So plan the next batch while this one plays. The first call returns immediately.
 
-A batch that would fail, e.g. on an anchor that doesn't match, may be rejected at once: nothing of it is queued, and the report says which action and why. Fix it and submit the whole batch again.
+A batch that would fail, e.g. on text that isn't on its line, is rejected at once: nothing of it is queued, and the report says which action and why. Fix it and submit the whole batch again.
 
 Read every report. It shows each finished batch's code as it now reads, with your cursor marked \`▌\`: check it's what you meant. If a batch was interrupted or failed, or the programmer said or did something, your later batches were discarded; what didn't play is listed, ready to resubmit, starting with what's left of an interrupted action. Take what happened into account and re-plan.
 
@@ -155,7 +168,7 @@ An empty batch waits for your queued batches without waiting for the programmer.
   },
   read: {
     description:
-      "Read a file as it is in the programmer's editor, including unsaved changes, and as your batches will leave it: what they'll type is already in it, even while they're still playing or queued, so its line numbers are the ones your next batch starts from. Read the part of a file you're about to work in before you move there, and copy anchors and line numbers from it: don't guess them. Prefer this over your own file tools during the session. Lines are numbered from 1; it says where the file ends, and whether a newline ends its last line.",
+      "Read a file as it is in the programmer's editor, including unsaved changes, and as your batches will leave it: what they'll type is already in it, even while they're still playing or queued, so its line numbers are the ones your next batch starts from. Read the part of a file you're about to work in before you move there, and copy line numbers and text from it: don't guess them. Prefer this over your own file tools during the session. Lines are numbered from 1; it says where the file ends, and whether a newline ends its last line.",
     inputSchema: {
       file,
       from_line: z.number().int().optional(),

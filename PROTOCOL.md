@@ -103,8 +103,8 @@ one of these statuses:
 Rules:
 
 - **Rejection.** A batch that would fail, as far as the extension can tell
-  when it's submitted (an anchor that doesn't resolve, a malformed action, an
-  edit during the programmer's turn), is **rejected**: `step` returns at once
+  when it's submitted (text that isn't on its line, a malformed action, a
+  second file, an edit during the programmer's turn), is **rejected**: `step` returns at once
   with the action that would fail, the error, and the code as it would read
   then. Nothing of it is queued, and the batches queued before it are
   unaffected.
@@ -121,8 +121,8 @@ Rules:
   `discarded` batches are returned verbatim, so the agent can resubmit them
   unchanged, modify them, or drop them. An action cut off partway through
   comes back reduced to what it didn't do yet.
-- **Anchors resolve at play time.** Anchors in a batch are resolved when the
-  action plays, not when the batch is submitted. A batch may therefore refer to
+- **Places resolve at play time.** Places and spans in a batch are resolved
+  when the action plays, not when the batch is submitted. A batch may therefore refer to
   text that an earlier, still-queued batch is going to type. (The agent's own
   typing is deterministic; only the programmer can break that prediction, and
   that is an interrupting event, covered by the rules above.)
@@ -169,11 +169,11 @@ the closing message in the narration panel. Returns the final report.
 
 Submits a batch. Blocks as described in [Timing model](#timing-model).
 
-**A batch works in one file.** It may name a file (in `move` or `point`) only
-before its first edit, and all the files it names must be the same one. So
-every batch edits exactly one file, and its report shows one piece of code. A
-batch that breaks this is rejected when it's submitted, as an error of the
-call: nothing is queued.
+**A batch works in one file.** It may name a file (in `move`, `select` or
+`point`) only before its first edit, and all the files it names must be the
+same one. So every batch edits exactly one file, and its report shows one
+piece of code. A batch that breaks this is rejected, like any batch that
+would fail, with `invalid_action` at the action that names a second file.
 
 An empty batch isn't a batch: `step([])` waits for the queued batches to
 finish, without waiting for the programmer, and reports them.
@@ -208,18 +208,21 @@ a newline ends its last line. Does not block and does not deliver events.
 ```ts
 type Action =
   | { say: string }
-  | { move: (Spot | { line?: number, to: "line_end" }) & { file?: string } }
+  | { move: Place }
   | { select: Span }
-  | { type: [before: string, after: string] }
-  | { type_fast: [before: string, after: string] }
+  | { type: string }          // with one ▌: where the cursor ends
+  | { type_fast: string }
   | { delete: true }
-  | { point: Span & { file?: string } }
+  | { point: Span }
   | { run: string, wait?: number }
 ```
 
 Each action is an object with exactly one of these keys. Anything else is
 rejected, including two actions in one object (`{ move: …, type: … }`): they
 are separate actions, played in order.
+
+`move`, `select` and `point` say where they act the same way, as a
+[place or a span](#places) on a line.
 
 Each editing action (`type`, `type_fast`, `delete`) is **one undo stop** in the
 programmer's undo stack, not one per character. If the programmer undoes an
@@ -240,67 +243,39 @@ batches.
 
 ### `move`
 
-Moves the agent cursor. If `file` is given, switches to that file (opening it
-if needed, and creating it empty if it doesn't exist); otherwise the move is
-in the current file. Clears any selection.
+Moves the agent cursor to a [place](#places): a spot, `at`, the exact text
+around it with the cursor marker `▌` where the cursor goes, or `to:
+"line_end"`, the end of the line, before its newline.
+`{ line: 3, at: "import { ▌type Context" }` lands right before
+`type Context`, on line 3. It's the marker reports use for the cursor, so a
+spot reads the way a report shows the cursor there.
 
-A move goes to a place on `line` (from 1), the line the cursor lands on,
-exactly. Without `line`, it's the cursor's line, in its file: that's how the
-agent steps past a close it just typed without knowing its line's number.
-The place is one of:
-
-- a **spot**, `at`: the exact text around it, with the cursor marker `▌`
-  where the cursor goes, on the line (see [Anchors](#anchors)).
-  `{ line: 3, at: "import { ▌type Context" }` lands right before
-  `type Context`, on line 3. It's the marker reports use for the cursor, so
-  a spot reads the way a report shows the cursor there.
-- `to: "line_end"`: the end of the line, before its newline.
-
-Lines are numbered as `read` and reports show them: a newline at the end of
-a file doesn't start another line, and an empty file has one, line 1. A move
-to a line the file doesn't have, a spot that isn't on its line, or anything
-else, such as `at` without exactly one `▌`, or both `at` and `to`, is
-rejected.
-
-The line is exact because an anchor alone can match somewhere the agent
-didn't mean: a closing brace one block too far. Giving the line the agent read
-the code at turns that slip into an error it sees at once. The agent takes
-line numbers only from `read` and reports, never counts them; that's why a
-move on the cursor's line needs none.
-
-**Only numbers the agent has been shown.** A line number worked out instead
-of read is easily off, and with `to: "line_end"` nothing would catch it. So a
-move's `line` must be the number the agent was last shown that line at, and
-the line must still be there: nothing since may have added or removed lines
-above it, whether its own batches, earlier in the same batch or queued before
-it, the programmer, or anything else. Lines are shown by `read`, by a
-report's code and cursor, and by errors that list lines; not by edit diffs,
-whose line numbers would have to be counted. A change to the line itself
-doesn't matter, only its number. Line 1 of an empty file needs no showing.
-
-A move to any other line is rejected with `line_not_seen`, saying what the
-line reads now and, for a spot, the lines where it is. Those count as shown,
-so the agent can fix the batch without a `read`.
+A move to a `file` that doesn't exist creates it, empty. A move clears any
+selection. Without `line`, it's on the cursor's line: that's how the agent
+steps past a close it just typed without knowing its line's number.
 
 ### `select`
 
-Selects the anchor's match, or the range from the start of `from` to the end
-of the first match of `to` after it. Rendered as a visible agent selection.
-The cursor ends at the end of the selection.
+Selects a [span](#places), rendered as a visible agent selection: its `text`,
+or the range `from` one text `through` the first match of another after it.
+The cursor ends at the end of the selection, in the span's file.
 
 ### `type` and `type_fast`
 
-Types `[before, after]` at the agent cursor, replacing the selection if there
-is one: first `before`, then `after`, then the cursor steps back to between
-them. It's how something with a close is typed with its close before its contents:
+Types the text at the agent cursor, replacing the selection if there is one.
+The text marks where the cursor ends with `▌`: everything is typed, the text
+before the `▌` and then the text after it, and the cursor steps back to the
+`▌`. It's how something with a close is typed with its close before its
+contents:
 
 ```jsonc
-{ "type": ["update(", ")"] }   // update(|)
-{ "type": ["ctx, dt", ""] }    // update(ctx, dt|)
+{ "type": "update(▌)" }   // update(▌)
+{ "type": "ctx, dt▌" }    // update(ctx, dt▌)
 ```
 
-The step back plays like a move nearby, with its pause. When `after` is
-empty, there's nothing to step back over, and no pause.
+The text has exactly one `▌`, even when nothing follows it, so a literal `▌`
+can't be typed. The step back plays like a move nearby, with its pause. With
+nothing after the `▌`, there's nothing to step back over, and no pause.
 
 - `type` is the default: for anything the programmer should read and
   understand. It plays at a human-like pace.
@@ -321,9 +296,10 @@ agent selects first, which makes deletions visible before they happen.)
 
 ### `point`
 
-Highlights a range without editing it and without moving the agent cursor,
-for talking about code: "this function is called from two places…". The
-highlight persists until the next `point` or the next editing action.
+Highlights a [span](#places), as `select` takes it, without editing it and
+without moving the agent cursor, for talking about code: "this function is
+called from two places…". The highlight persists until the next `point` or
+the next editing action.
 
 **Point, then say.** During the agent's turn, the view follows the pointed
 code, switching to its `file` if needed, so the `say` right after it plays
@@ -363,43 +339,65 @@ commands can still run in the background with the agent's native tools.
   is typed into the terminal and the entry says the output wasn't captured.
 - Not allowed during the programmer's turn.
 
-## Anchors
+## Places
 
-Locations are identified by **exact text**. `select` and `point` take an
-anchor, the text itself; `move` takes a spot, a place in the text around it,
-on a given line.
+`move` goes to a **place**, and `select` and `point` take a **span** of code.
+Both are found by **exact text, on a line**:
 
 ```ts
-type Anchor = {
-  text: string                  // exact match, may span lines
-  near_line?: number            // tie-breaker: the match closest to this line
+type Place = {
+  file?: string
+  line?: number     // the line the cursor lands on, exactly; omitted: the cursor's line
+  at?: string       // a spot: the exact text around it, with one ▌ where the cursor goes; may span lines
+  to?: "line_end"   // instead of `at`: the end of the line
 }
 
-type Spot = {
-  line?: number                 // the line the spot is on, exactly; omitted: the cursor's line
-  at: string                    // exact text around the spot, with one ▌ where it is; may span lines
+type Span = {
+  file?: string
+  line?: number     // the line the code starts on, exactly; omitted: the cursor's line
+  text?: string     // the code's exact text; may go on past its line
+  from?: string     // instead of `text`, a range: from this text, on the line,
+  through?: string  //   through the first match of this one after it
 }
-
-type Span = Anchor | { from: Anchor, to: { text: string } }  // `to`: its first match after `from`
 ```
 
-Resolution of an anchor:
+- **`file`** switches to that file, only before the batch's first edit (see
+  [`step`](#stepactions-action---report)). Without it, the action is in the
+  cursor's file.
+- **`line`** is exact. Lines are numbered as `read` and reports show them: a
+  newline at the end of a file doesn't start another line, and an empty file
+  has one, line 1. A line the file doesn't have fails with `no_line`. Without
+  `line`, it's the cursor's line, which needs the cursor to be in the file.
+- **The text** must be on the line (a span's text or `from` must start on
+  it) and occur there only once. It only has to be unique on its line, so a
+  spot can be as short as `"}▌"`. Text that isn't on the line fails with
+  `not_found`, saying what the line reads and listing the lines where the text
+  does occur; text that occurs more than once on it fails with `ambiguous`.
+  A `through` that doesn't follow `from` fails with `not_found` too.
 
-1. Find all exact matches of `text`.
-2. Exactly one match: done.
-3. Several matches: if `near_line` is given, pick the match closest to that
-   line.
-4. Otherwise the action fails with `anchor_not_found` or `anchor_ambiguous`,
-   listing candidates (line number plus a line of context).
+The line is exact because text alone can match somewhere the agent didn't
+mean: a closing brace one block too far. Giving the line the agent read the
+code at turns that slip into an error it sees at once. The agent takes line
+numbers only from `read` and reports, never counts them; that's why an action
+on the cursor's line needs none.
 
-The way to avoid ambiguity is a longer text: a whole line. `near_line` is a
-tie-breaker: a hint that is off by a few lines still selects the right match.
+**Only numbers the agent has been shown.** A line number worked out instead
+of read is easily off, and with `to: "line_end"` nothing would catch it. So a
+`line` must be the number the agent was last shown that line at, and the line
+must still be there: nothing since may have added or removed lines above it,
+whether its own batches, earlier in the same batch or queued before it, the
+programmer, or anything else. Lines are shown by `read`, by a report's code
+and cursor, and by errors that list lines; not by edit diffs, whose line
+numbers would have to be counted. A change to the line itself doesn't matter,
+only its number. Line 1 of an empty file needs no showing.
 
-A spot resolves to the match of its text, `at` without the `▌`, whose `▌` is
-on `line`.
-None there fails with `anchor_not_found`, saying what the line reads and
-listing the lines where the spot does occur; more than one there fails with
-`anchor_ambiguous`.
+An action on any other line is rejected with `line_not_seen`, saying what the
+line reads now, and the lines where its text is. Those count as shown, so the
+agent can fix the batch without a `read`.
+
+**Text copied from a report** may carry the cursor marker. A span ignores it.
+In a spot, `▌` is where the cursor goes, so text copied into `at` leaves the
+report's old `▌` out.
 
 ## Reports
 
@@ -422,7 +420,8 @@ lines, not as JSON strings full of escapes. It says, in order:
      shown as an empty line after the last one, unless the cursor is there, so
      an empty line shown at the end is a blank line in the file.
    - the commands it ran, with their exit code and output,
-   - for a failed batch, the error, with candidates for an ambiguous anchor,
+   - for a failed batch, the error, with the lines where the text it looked
+     for is,
    - **what didn't play**, verbatim, one action per line, ready to resubmit.
      An interrupted action comes first, reduced to what it didn't do yet; a
      failed batch's failing action comes first.
@@ -451,17 +450,13 @@ Batch 6 interrupted, in src/server.ts:
 17  app.listen(3000);
     (end of file)
 Not played:
-  {"type":["tus(",")"]}
-  {"type":["201",""]}
+  {"type":"tus(▌)"}
+  {"type":"201▌"}
 
 Batch 7 discarded.
 Not played:
   {"say":"Now the GET route."}
 ```
-
-**Anchors ignore the cursor marker**, so text can be copied from a report's
-code as it is. In a spot, `▌` is where the cursor goes, so text copied into
-`at` leaves the report's old `▌` out.
 
 **What counts as played.** A `say` counts once it's shown, even if its
 reading pause is cut short. A `move` or `select` counts once the cursor has
@@ -469,10 +464,11 @@ moved. A `run` counts once its command has started. A batch interrupted
 before any of its actions had a visible effect is reported as `discarded`.
 
 **A cut-off `type`** leaves what it typed in the buffer, and comes back
-reduced to the rest: cut in `before`, it's the rest of `before`, then `after`,
-which finishes it exactly. Cut in `after`, it's `["", rest of after]`, which
+reduced to the rest, with its `▌` where it was: cut before the `▌`, it's the
+rest of the text before it, then the `▌` and all that follows it, which
+finishes it exactly. Cut after the `▌`, it's `▌` and the rest after it, which
 restores the text but leaves the cursor as many characters past the inside of
-the pair as `after` had typed; the code shows where the cursor is.
+the pair as had been typed after the `▌`; the code shows where the cursor is.
 
 Internally, the editor produces a structured report, which the relay renders:
 
@@ -509,7 +505,7 @@ type BatchResult = {
 }
 
 type BatchError = {
-  kind: "anchor_not_found" | "anchor_ambiguous" | "line_not_seen" | "no_selection" | "no_file"
+  kind: "no_line" | "not_found" | "ambiguous" | "line_not_seen" | "no_selection" | "no_cursor"
       | "not_your_turn" | "invalid_action" | "command_failed" | "command_declined"
   message: string
   candidates?: { line: number, context: string }[]
@@ -618,13 +614,13 @@ experience (order of work, narration, background vs. visible work) is in
 → step
 [{ "say": "Let's add the POST handler. Signature first." },
  { "move": { "file": "src/server.ts", "line": 4, "at": "app.use(express.json());▌" } },
- { "type": ["\n\napp.post('/todos', async (req, res) => {\n", "\n});"] }]
+ { "type": "\n\napp.post('/todos', async (req, res) => {\n▌\n});" }]
 ← returns immediately
 Batch 1 is playing.
 
 → step (blocks until batch 1 finishes)
 [{ "say": "We need a title from the body." },
- { "type": ["  const title = req.body.title;", ""] }]
+ { "type": "  const title = req.body.title;▌" }]
 ←
 Batch 1 completed, in src/server.ts:
  1  import express from 'express';
@@ -654,12 +650,12 @@ The programmer said:
 Batch 2 interrupted, in src/server.ts:
 7    const ti▌
 Not played:
-  {"type":["tle = req.body.title;",""]}
+  {"type":"tle = req.body.title;▌"}
 
 Batch 3 discarded.
 Not played:
   {"say":"..."}
-  {"type":["...",""]}
+  {"type":"...▌"}
 
 → step
 [{ "select": { "text": "  const ti" } },
@@ -676,7 +672,7 @@ Not played:
 ← returns immediately
 Your batch was rejected: its action 2 would fail:
   {"move":{"line":30,"at":"  return res.json(▌"}}
-anchor_not_found: The spot isn't on line 30: line 30 reads "  const todo = findTodo(id);". It's on these lines:
+not_found: The spot isn't on line 30: line 30 reads "  const todo = findTodo(id);". It's on these lines:
   line 12: return res.json(todos);
   line 31: return res.json(todo);
 The code would read then, in src/server.ts:
@@ -696,8 +692,9 @@ Programmer presses "My turn".
 ← The programmer edited src/server.ts:
   @@ -20,2 +20,4 @@
   ...
+→ read src/server.ts, from line 20: the loop is on line 21
 → step
-[{ "point": { "text": "for (let i = 0; i <= todos.length; i++)" } },
+[{ "point": { "line": 21, "text": "for (let i = 0; i <= todos.length; i++)" } },
  { "say": "Careful: `<=` will go one past the end." }]
 → listen
 ... programmer fixes it, presses "Your turn" ...

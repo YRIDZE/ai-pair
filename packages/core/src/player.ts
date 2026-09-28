@@ -1,10 +1,10 @@
 // Playing batches: what each action does, at a human pace. The same code plays a batch in the
 // programmer's editor and, to check it before it's queued, in memory (see rehearsal.ts).
 
-import type { Action, BatchResult, Candidate, Code, ErrorKind, RunResult, Turn, TypeText } from "@ai-pair/protocol"
+import type { Action, BatchResult, Candidate, Code, ErrorKind, RunResult, SpanTarget, Turn } from "@ai-pair/protocol"
 import * as nodePath from "node:path"
-import { actionKinds, CURSOR_MARKER, moveProblem } from "@ai-pair/protocol"
-import { resolveSpan, resolveSpot, spotCandidates, type Resolution } from "./anchors"
+import { actionKinds, CURSOR_MARKER, moveProblem, spanProblem, typeProblem } from "@ai-pair/protocol"
+import { resolveSpan, resolveSpot, spanCandidates, spotCandidates, type Resolution } from "./places"
 import type { Config } from "./controller"
 import type { LineIds, Sighting } from "./lines"
 import type { Change, EditorPort, Focus, PanelPort } from "./ports"
@@ -65,6 +65,9 @@ type Playing = {
   runs: RunResult[]
   /** The lines its report shows. */
   sightings: Sighting[]
+  /** The file it names, in `move`, `select` or `point`, and whether it has edited yet. */
+  named?: string
+  edited: boolean
   /** The text its edits changed, tracked through later edits. */
   span?: Range
   moved: boolean
@@ -119,7 +122,7 @@ export class Player {
 
   /** Plays a batch, saves the files it edited, and says how it went, and which lines that shows. */
   async play(id: number, actions: Action[]): Promise<{ result: BatchResult; sightings: Sighting[] }> {
-    const playing: Playing = { touched: new Set(), runs: [], sightings: [], moved: false }
+    const playing: Playing = { touched: new Set(), runs: [], sightings: [], edited: false, moved: false }
     this.playing = playing
     let result: BatchResult
     try {
@@ -243,18 +246,20 @@ export class Player {
     if (kinds.length > 1) {
       return fail("invalid_action", `One action per object, got ${kinds.map((k) => `\`${k}\``).join(" and ")}: make them separate actions, in order.`)
     }
+    const named = this.names(action, playing)
+    if (typeof named === "object") return named
     if (s.turn === "user" && !("say" in action) && !("point" in action)) {
       return fail("not_your_turn", "During the programmer's turn, only `say` and `point` are allowed.")
     }
 
     // An action at the cursor brings the view back to it from the code last pointed at. A far jump
-    // back gets a far move's pause, before anything happens there; a `move` has its own.
+    // back gets a far move's pause, before anything happens there; one to another file has its own.
     const cursorAction = !("say" in action) && !("point" in action) && !("run" in action)
     const lookingBack = cursorAction && s.focus === "point"
     const farBack = lookingBack && s.pointFar
     if (lookingBack) {
       s.focus = "cursor"
-      if (farBack && !("move" in action) && s.cursor) {
+      if (farBack && !("move" in action) && named === undefined && s.cursor) {
         await editor.show(s.cursor.file)
         this.stage.render()
         if (!(await this.delay(timing.afterMoveFarMs))) return { kind: "interrupted" }
@@ -278,33 +283,20 @@ export class Player {
       const m = action.move
       const problem = moveProblem(m)
       if (problem) return fail("invalid_action", problem)
-      const file = m.file !== undefined ? this.resolvePath(m.file) : s.cursor?.file
-      if (!file) return fail("no_file", "The agent cursor isn't in a file yet; give `file`.")
+      const file = this.fileOf(m)
+      if (!file) return fail("no_cursor", "Your cursor isn't in a file yet; give `file`.")
       if (!(await this.delay(timing.beforeMoveMs))) return { kind: "interrupted" }
       await editor.show(file)
-      const text = await editor.getText(file)
-      let line: number
-      if (m.line === undefined) {
-        // On the cursor's line, which may be the empty one after a final newline, if it's there.
-        if (s.cursor?.file !== file) return fail("invalid_action", "Give `line`: without it, a move stays on your cursor's line, in its file.")
-        line = position(text, s.cursor.offset).line
-      } else {
-        // An empty file has one line, the empty one; a newline at the end doesn't start another.
-        const lines = Math.max(1, fileLines(text).lines.length)
-        if (m.line > lines) {
-          const has = lines === 1 ? "1 line" : `${lines} lines`
-          return fail("anchor_not_found", `There's no line ${m.line}: ${this.displayPath(file)} has ${has}.`)
-        }
-        line = m.line
-        const unseen = this.unseen(file, text, line, m.at)
-        if (unseen) return unseen
-      }
+      const at = m.at
+      const where = await this.locate(file, m.line, "move", at === undefined ? undefined : (text) => spotCandidates(text, at))
+      if ("kind" in where) return where
+      const { text, line } = where
       let offset: number
       if (m.to === "line_end") offset = lineEnd(text, line)
       else {
         const r = resolveSpot(text, { at: m.at!, line })
         // A spot not on its line says what the line reads.
-        if (!r.ok) return failed(r, file, text, r.kind === "anchor_not_found" ? [line] : [])
+        if (!r.ok) return failed(r, file, text, r.kind === "not_found" ? [line] : [])
         offset = r.range.start
       }
       const near =
@@ -321,14 +313,17 @@ export class Player {
     }
 
     if ("select" in action) {
-      if (!s.cursor) return fail("no_file", "The agent cursor isn't in a file yet; `move` first.")
+      const target = action.select
+      const problem = spanProblem(target)
+      if (problem) return fail("invalid_action", problem)
+      const file = this.fileOf(target)
+      if (!file) return fail("no_cursor", "Your cursor isn't in a file yet; give `file`.")
       if (!(await this.delay(timing.beforeSelectMs))) return { kind: "interrupted" }
-      await editor.show(s.cursor.file)
-      const text = await editor.getText(s.cursor.file)
-      const r = resolveSpan(text, action.select)
-      if (!r.ok) return failed(r, s.cursor.file, text)
-      s.selection = r.range
-      s.cursor.offset = r.range.end
+      await editor.show(file)
+      const span = await this.span(file, target, "select")
+      if ("kind" in span) return span
+      s.cursor = { file, offset: span.end }
+      s.selection = { start: span.start, end: span.end }
       playing.moved = true
       this.stage.render()
       await this.delay(timing.afterSelectMs)
@@ -337,17 +332,18 @@ export class Player {
 
     if ("type" in action || "type_fast" in action) {
       const fast = "type_fast" in action
-      const parts: unknown = fast ? action.type_fast : action.type
-      if (!Array.isArray(parts) || parts.length !== 2 || !parts.every((p) => typeof p === "string")) {
-        return fail("invalid_action", "Give the text to type as two parts, `[before, after]`: the cursor ends between them.")
-      }
-      return this.type(parts as TypeText, fast, playing)
+      const text: unknown = fast ? action.type_fast : action.type
+      const problem = typeProblem(text)
+      if (problem) return fail("invalid_action", problem)
+      const [before, after] = (text as string).split(CURSOR_MARKER) as [string, string]
+      return this.type(before, after, fast, playing)
     }
 
     if ("delete" in action) {
       if (!s.cursor || !s.selection) return fail("no_selection", "Nothing is selected; `select` first.")
       const { file } = s.cursor
       const { start, end } = s.selection
+      playing.edited = true
       await editor.show(file)
       this.stage.lines.of(file, await editor.getText(file))
       this.clearPoint()
@@ -361,24 +357,25 @@ export class Player {
     }
 
     if ("point" in action) {
-      const p = action.point
-      const file = p.file !== undefined ? this.resolvePath(p.file) : s.cursor?.file
-      if (!file) return fail("no_file", "The agent cursor isn't in a file yet; give `file`.")
+      const target = action.point
+      const problem = spanProblem(target)
+      if (problem) return fail("invalid_action", problem)
+      const file = this.fileOf(target)
+      if (!file) return fail("no_cursor", "Your cursor isn't in a file yet; give `file`.")
       if (s.turn === "agent") await editor.show(file)
-      const text = await editor.getText(file)
-      const r = resolveSpan(text, p)
-      if (!r.ok) return failed(r, file, text)
-      s.point = { file, ...r.range }
+      const span = await this.span(file, target, "point")
+      if ("kind" in span) return span
+      s.point = { file, start: span.start, end: span.end }
+      const pointLine = position(span.text, span.start).line
       if (s.turn === "agent") {
         // The view goes to the pointed code, so the `say` about it plays while the programmer looks at it.
-        const cursorLine = s.cursor?.file === file ? position(text, s.cursor.offset).line : undefined
-        const pointLine = position(text, r.range.start).line
+        const cursorLine = s.cursor?.file === file ? position(span.text, s.cursor.offset).line : undefined
         s.pointFar = cursorLine === undefined || Math.abs(cursorLine - pointLine) > timing.nearLines
         s.focus = "point"
       }
       editor.renderPoint(s.point)
       this.stage.render()
-      panel.post({ type: "point", file: editor.displayPath(file), line: position(text, r.range.start).line })
+      panel.post({ type: "point", file: editor.displayPath(file), line: pointLine })
       await this.delay(timing.afterPointMs)
       return ok
     }
@@ -456,12 +453,13 @@ export class Player {
     return ok
   }
 
-  /** Types `before`, then `after`, then steps back to between them. */
-  private async type([before, after]: TypeText, fast: boolean, playing: Playing): Promise<Outcome> {
+  /** Types `before`, then `after`, then steps back to between them: to where the text had its `▌`. */
+  private async type(before: string, after: string, fast: boolean, playing: Playing): Promise<Outcome> {
     const s = this.scene
     const { editor } = this.stage
-    if (!s.cursor) return fail("no_file", "The agent cursor isn't in a file yet; `move` first.")
+    if (!s.cursor) return fail("no_cursor", "Your cursor isn't in a file yet; `move` first.")
     const cursor = s.cursor
+    playing.edited = true
     await editor.show(cursor.file)
     this.clearPoint()
 
@@ -479,8 +477,10 @@ export class Player {
       const chunk = chunks[i]!
       if (!(await this.delay(chunk.delay))) {
         if (typed === "") return { kind: "interrupted" }
-        const rest: TypeText =
-          typed.length <= before.length ? [before.slice(typed.length), after] : ["", after.slice(typed.length - before.length)]
+        const rest =
+          typed.length <= before.length
+            ? before.slice(typed.length) + CURSOR_MARKER + after
+            : CURSOR_MARKER + after.slice(typed.length - before.length)
         return { kind: "interrupted", rest: fast ? { type_fast: rest } : { type: rest } }
       }
       const insert = eol === "\n" ? chunk.text : chunk.text.replaceAll("\n", eol)
@@ -512,18 +512,86 @@ export class Player {
     return this.stage.editor.edit(file, change.offset, change.deleteLength, change.text, options)
   }
 
+  /** The file an action names, or the cursor's. */
+  private fileOf(target: { file?: string }): string | undefined {
+    return target.file !== undefined ? this.resolvePath(target.file) : this.scene.cursor?.file
+  }
+
   /**
-   * A move to a line whose number the agent may have worked out instead of being shown, if it
-   * isn't one it knows. Says what the line reads now, and where the spot is, which it's shown
-   * then. An empty file's one line needs no showing.
+   * The file an action names, if any, checked against the rest of its batch: a batch works in one
+   * file, which it names before its first edit.
    */
-  private unseen(file: string, text: string, line: number, at: string | undefined): Outcome | undefined {
+  private names(action: Action, playing: Playing): string | undefined | Outcome {
+    const target: unknown = "move" in action ? action.move : "select" in action ? action.select : "point" in action ? action.point : undefined
+    const file = typeof target === "object" && target !== null && "file" in target ? target.file : undefined
+    if (typeof file !== "string") return undefined
+    const path = this.resolvePath(file)
+    if (playing.named !== undefined && path !== playing.named) {
+      return fail(
+        "invalid_action",
+        `A batch works in one file, but this one names ${this.displayPath(playing.named)} and ${this.displayPath(path)}. Start a new batch where it switches files.`,
+      )
+    }
+    if (playing.named === undefined && playing.edited) {
+      return fail(
+        "invalid_action",
+        "A batch works in one file: name it (in `move`, `select` or `point`) before the batch's first edit. Start a new batch where it switches files.",
+      )
+    }
+    playing.named = path
+    return path
+  }
+
+  /**
+   * The line an action goes to, in `file`: `line`, exactly, if it's a line the agent was shown
+   * there, or the cursor's line. `find`: where the text the action looks for is, to list it if the
+   * line isn't one the agent knows; none for the end of a line.
+   */
+  private async locate(
+    file: string,
+    line: number | undefined,
+    action: string,
+    find: ((text: string) => Candidate[]) | undefined,
+  ): Promise<{ text: string; line: number } | Outcome> {
+    const s = this.scene
+    const text = await this.stage.editor.getText(file)
+    if (line === undefined) {
+      // The cursor's line, which may be the empty one after a final newline, if it's there.
+      if (s.cursor?.file !== file) return fail("invalid_action", `Give \`line\`: without it, a \`${action}\` is on your cursor's line, in its file.`)
+      return { text, line: position(text, s.cursor.offset).line }
+    }
+    // An empty file has one line, the empty one; a newline at the end doesn't start another.
+    const lines = Math.max(1, fileLines(text).lines.length)
+    if (line > lines) {
+      const has = lines === 1 ? "1 line" : `${lines} lines`
+      return fail("no_line", `There's no line ${line}: ${this.displayPath(file)} has ${has}.`)
+    }
+    return this.unseen(file, text, line, action === "move" ? "the spot" : "the text", find) ?? { text, line }
+  }
+
+  /** The code a `select` or `point` takes, in `file`. */
+  private async span(file: string, target: SpanTarget, action: string): Promise<{ text: string; start: number; end: number } | Outcome> {
+    const find = target.text ?? target.from!
+    const where = await this.locate(file, target.line, action, (text) => spanCandidates(text, find))
+    if ("kind" in where) return where
+    const { text, line } = where
+    const r = resolveSpan(text, { ...target, line })
+    // Code not on its line says what the line reads.
+    if (!r.ok) return failed(r, file, text, r.kind === "not_found" && r.candidates ? [line] : [])
+    return { text, ...r.range }
+  }
+
+  /**
+   * An action on a line whose number the agent may have worked out instead of being shown, if it
+   * isn't one it knows. Says what the line reads now, and where what it looks for is, which it's
+   * shown then. An empty file's one line needs no showing.
+   */
+  private unseen(file: string, text: string, line: number, what: string, find: ((text: string) => Candidate[]) | undefined): Outcome | undefined {
     const { knows, lines } = this.stage
     if (!knows || text === "" || knows(file, line, lines.of(file, text)[line - 1]!)) return undefined
-    const candidates = at === undefined ? [] : spotCandidates(text, at)
+    const candidates = find?.(text) ?? []
     const reads = `line ${line} reads ${JSON.stringify(lineText(text, line))}`
-    const where =
-      at === undefined ? "." : candidates.length > 0 ? ", and the spot is on these lines:" : ", and the spot isn't anywhere in the file."
+    const where = !find ? "." : candidates.length > 0 ? `, and ${what} is on these lines:` : `, and ${what} isn't anywhere in the file.`
     const outcome: Outcome = {
       kind: "error",
       error: "line_not_seen",

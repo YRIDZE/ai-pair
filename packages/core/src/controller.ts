@@ -170,7 +170,6 @@ export class Controller {
       const s = this.requireSession()
       // An empty batch only waits for the queued ones, so it isn't a batch of its own.
       if (actions.length === 0) return this.block("step", {}, signal)
-      this.checkOneFile(s, actions)
       // Played in memory first, so what would fail is reported now, not when the batch plays.
       const rehearsal = s.stale || s.ended ? undefined : await this.rehearse(s, actions)
       // An interruption arriving meanwhile discards it, like any batch planned without knowing about it.
@@ -468,34 +467,6 @@ export class Controller {
     const report = { ...this.snapshot(s, undefined, false), rejected }
     this.render()
     return this.withCursor(s, report)
-  }
-
-  /** A batch edits one file: it names at most one (in `move` or `point`), and only before its first edit. */
-  private checkOneFile(s: Session, actions: Action[]): void {
-    let named: string | undefined
-    let edited = false
-    for (const action of actions) {
-      // A malformed action fails when it plays, with its own error.
-      if (typeof action !== "object" || action === null || actionKinds(action).length !== 1) continue
-      if ("type" in action || "type_fast" in action || "delete" in action) edited = true
-      const target: unknown = "move" in action ? action.move : "point" in action ? action.point : undefined
-      const file = typeof target === "object" && target !== null && "file" in target ? target.file : undefined
-      if (typeof file !== "string") continue
-      const path = this.resolvePath(s, file)
-      if (named !== undefined && path !== named) {
-        throw new ToolError(
-          "invalid_arguments",
-          `A batch works in one file, but this one names ${this.displayPath(s, named)} and ${this.displayPath(s, path)}. Start a new batch where it switches files.`,
-        )
-      }
-      if (named === undefined && edited) {
-        throw new ToolError(
-          "invalid_arguments",
-          "A batch works in one file: name it (in `move` or `point`) before the batch's first edit. Start a new batch where it switches files.",
-        )
-      }
-      named = path
-    }
   }
 
   private requireSession(): Session {
