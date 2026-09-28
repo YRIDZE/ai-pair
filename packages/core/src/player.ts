@@ -498,7 +498,9 @@ export class Player {
       this.stage.render()
     }
     if (after !== "") {
-      // Into the pair just closed: a move within sight, so the same pause as one.
+      // Into the pair just closed: a move within sight, so the same beat before it, and pause after,
+      // as one. Interrupted, it still steps back: all of the text was typed.
+      await this.delay(timing.beforeMoveMs * scale)
       cursor.offset -= eol === "\n" ? after.length : after.replaceAll("\n", eol).length
       this.stage.render()
       await this.delay(timing.afterMoveNearMs * scale)

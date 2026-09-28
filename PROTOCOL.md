@@ -274,8 +274,9 @@ contents:
 ```
 
 The text has exactly one `▌`, even when nothing follows it, so a literal `▌`
-can't be typed. The step back plays like a move nearby, with its pause. With
-nothing after the `▌`, there's nothing to step back over, and no pause.
+can't be typed. The step back plays like a move nearby, with its beat before
+and its pause after. With nothing after the `▌`, there's nothing to step back
+over, and no pause.
 
 - `type` is the default: for anything the programmer should read and
   understand. It plays at a human-like pace.

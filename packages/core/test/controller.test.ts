@@ -198,6 +198,26 @@ describe("editing", () => {
     expect(fast).toBeLessThan(1000)
   })
 
+  it("steps back into a pair after a move's beat, so the close is seen typed first, and with ▌ at the end, doesn't wait", async () => {
+    const { editor, controller } = setup({ "a.ts": "" }, { timing: { ...testConfig.timing, beforeMoveMs: 500, afterMoveNearMs: 0 } })
+    await controller.start()
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }])
+    await until(controller.step([]))
+    await controller.step([{ type: "f(▌)" }])
+    // 100 ms per character, so all three are typed after 300 ms; the beat follows.
+    await advance(350)
+    expect(editor.text("a.ts")).toBe("f()")
+    expect(editor.cursor?.offset).toBe(3)
+    await advance(500)
+    expect(editor.cursor?.offset).toBe(2)
+    await until(controller.step([]))
+    // Nothing to step back over: done as soon as it's typed.
+    const before = Date.now()
+    await controller.step([{ type: "ab▌" }])
+    await until(controller.step([]))
+    expect(Date.now() - before).toBeLessThan(500)
+  })
+
   it("makes room and steps into it, then moves past a filled pair to the end of the line", async () => {
     const { editor, controller } = setup({ "a.ts": "a\nb\n" })
     await controller.start()

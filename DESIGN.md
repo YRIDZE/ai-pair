@@ -139,10 +139,10 @@ Plus a 150 ms beat *before* a move or a selection, so it doesn't look
 instantaneous.
 
 When text follows the `▌` in a `type`, the cursor steps back to the `▌` after
-typing it all: the pause of a nearby move, without the beat before it, since
-the programmer just watched that spot being typed. `type_fast` shortens the
-pause by the same factor as its typing. With nothing after the `▌`, the
-cursor is already in place and there's no pause.
+typing it all, like a nearby move: the beat before it, so the programmer sees
+the close typed before the cursor leaves it, and the pause after it.
+`type_fast` shortens both by the same factor as its typing. With nothing
+after the `▌`, the cursor is already in place and there's neither.
 
 **Reading.** After a `say`: `clamp(words × 180, 1000, 6000)`. Enough to read
 most of the message, not all of it.
