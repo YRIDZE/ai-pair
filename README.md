@@ -39,18 +39,22 @@ Or, instead of the last line, in VS Code: Extensions view → `…` menu →
    server your agent runs, and each VS Code window registers itself so the
    server can find it.
 2. **Run *AI Pair: Set Up Agent*** from the command palette (VS Code also
-   offers this the first time the extension starts). Pick your agent:
-   - **Claude Code (CLI)**, for all your projects. This runs the following in
-     a terminal:
-     ```sh
-     claude mcp add --scope user pair -- ~/.ai-pair/bin/pair-mcp
-     ```
-   - **Claude Code (this project)**. This writes a `.mcp.json` into the
-     project. Use it if you use Claude Code in the **Claude desktop app**,
-     which has no `claude` command. The file refers to the launcher through
-     `${HOME}`, so it works for anyone who has the extension.
-   - **Another agent**. This copies an MCP server configuration to the
-     clipboard: a stdio server named `pair` running `~/.ai-pair/bin/pair-mcp`.
+   offers this the first time the extension starts). Pick your agents; the
+   ones it finds installed are already checked. For each one, it adds a
+   server named `pair` to that agent's user-wide MCP configuration, leaving
+   everything else in the file as it was:
+
+   | Agent | Where |
+   |---|---|
+   | **Claude Code** (the CLI, the IDE extensions, the Claude desktop app's Code tab) | `claude mcp add --scope user`, or `~/.claude.json` without the `claude` command |
+   | **Codex** (the CLI, the IDE extension, the app) | `~/.codex/config.toml` (or in `$CODEX_HOME`) |
+   | **OpenCode** | `~/.config/opencode/opencode.json` (`.jsonc` if you have one), on Windows too |
+   | **Gemini CLI** | `~/.gemini/settings.json` |
+   | **Cursor** | `~/.cursor/mcp.json` |
+   | **Another agent** | copies an MCP server configuration to the clipboard: a stdio server named `pair` running `~/.ai-pair/bin/pair-mcp` |
+
+   **GitHub Copilot** in VS Code needs none of this: the extension gives it
+   the `pair` server itself.
 3. **Restart your agent** so it picks up the new server.
 
 ## Pair
@@ -98,8 +102,8 @@ open folder.
   that's open in VS Code. Open that folder in VS Code, or start the agent in
   it.
 - **The agent doesn't have the pair tools.** Restart the agent after setting
-  it up. With the Claude Code CLI, `claude mcp list` should show `pair`. With
-  `.mcp.json`, approve the server when Claude Code asks.
+  it up. *AI Pair: Set Up Agent* marks the agents that are set up. With
+  Claude Code, `claude mcp list` should show `pair`.
 - **After updating the extension,** reload the VS Code window and restart the
   agent.
 

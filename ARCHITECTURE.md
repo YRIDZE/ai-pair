@@ -135,14 +135,17 @@ The panel keeps each session's narration history. Between sessions it shows
 ## Starting a session
 
 **First-time setup.** The command *AI Pair: Set up agent* registers `pair-mcp`
-with the harness. For Claude Code it runs:
-
-```
-claude mcp add --scope user pair -- ~/.ai-pair/bin/pair-mcp
-```
-
-For other harnesses it copies the config snippet to the clipboard. The
-extension offers this once, the first time it starts.
+with the harnesses the programmer picks, in each one's user-wide MCP
+configuration, so it works in every project. It edits only the `pair` entry,
+keeping the rest of the file as it was: JSON and JSONC with `jsonc-parser`,
+Codex's TOML as text, table by table (a TOML round trip would drop comments).
+For Claude Code it runs `claude mcp add --scope user` when the `claude` command
+is there, since Claude Code rewrites `~/.claude.json` constantly. Harnesses in
+VS Code itself (Copilot) need no setup: the extension provides the server to
+them through VS Code's MCP API, running the relay directly in the workspace.
+For any other harness it copies the config snippet to the clipboard. The
+extension offers this once, the first time it starts. The harnesses and their
+files are in [`agents.ts`](packages/vscode/src/agents.ts).
 
 **Each session.** The programmer asks the agent to pair ("let's pair on adding
 a todos API, I'm new to Express"), or runs the server's `start` prompt (in

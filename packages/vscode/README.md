@@ -9,12 +9,11 @@ It works with your existing coding agent (tested with Claude Code) through MCP.
 ## Set up
 
 1. Open a project folder.
-2. Run **AI Pair: Set Up Agent** and pick your agent:
-   - **Claude Code (CLI)** registers the server for all your projects.
-   - **Claude Code (this project)** writes a `.mcp.json`. Use this for the
-     Claude desktop app.
-   - **Another agent** copies an MCP configuration: a stdio server named `pair`
-     running `~/.ai-pair/bin/pair-mcp`.
+2. Run **AI Pair: Set Up Agent** and pick your agents: Claude Code, Codex,
+   OpenCode, Gemini CLI, Cursor. It adds a `pair` server to each one's
+   user-wide MCP configuration. **Another agent** copies an MCP configuration
+   instead: a stdio server named `pair` running `~/.ai-pair/bin/pair-mcp`.
+   GitHub Copilot needs no setup.
 3. Restart your agent.
 
 ## Pair

@@ -18,6 +18,8 @@ const common = {
   minify: production,
   sourcemap: !production,
   logLevel: "warning",
+  // jsonc-parser's `main` is a UMD build whose requires esbuild can't follow; its ES module build bundles.
+  mainFields: ["module", "main"],
 }
 
 await esbuild.build({ ...common, entryPoints: ["src/extension.ts"], external: ["vscode"], outfile: "dist/extension.js" })

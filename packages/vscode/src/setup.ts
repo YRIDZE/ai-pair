@@ -1,4 +1,4 @@
-// The launcher for pair-mcp, and connecting it to the programmer's agent.
+// The launcher for pair-mcp, and connecting it to the programmer's agents.
 // See "Starting a session" and "Distribution" in ARCHITECTURE.md.
 
 import * as fs from "node:fs"
@@ -6,6 +6,11 @@ import * as os from "node:os"
 import * as path from "node:path"
 import * as vscode from "vscode"
 import { aiPairHome } from "@ai-pair/protocol"
+import { AGENTS, execProgram, SERVER, type Host } from "./agents"
+
+function relayPath(extensionPath: string): string {
+  return path.join(extensionPath, "dist", "relay.js")
+}
 
 /**
  * Writes a launcher at a fixed path that runs this version's relay with VS Code's own runtime,
@@ -14,7 +19,7 @@ import { aiPairHome } from "@ai-pair/protocol"
 export function writeLauncher(extensionPath: string): string {
   const bin = path.join(aiPairHome(), "bin")
   fs.mkdirSync(bin, { recursive: true })
-  const relay = path.join(extensionPath, "dist", "relay.js")
+  const relay = relayPath(extensionPath)
   if (process.platform === "win32") {
     const launcher = path.join(bin, "pair-mcp.cmd")
     fs.writeFileSync(launcher, `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${process.execPath}" "${relay}" %*\r\n`)
@@ -25,68 +30,79 @@ export function writeLauncher(extensionPath: string): string {
   return launcher
 }
 
-function quoted(p: string): string {
-  return /[\s"'$`\\]/.test(p) ? `"${p.replace(/(["\\$`])/g, "\\$1")}"` : p
+/**
+ * Offers the pair server to agents running in VS Code itself (Copilot), with no setup: it runs the
+ * relay directly, in the workspace, which is how the relay finds this window.
+ */
+export function registerServerProvider(context: vscode.ExtensionContext): void {
+  // Missing in editors built on an older VS Code.
+  if (typeof vscode.lm?.registerMcpServerDefinitionProvider !== "function") return
+  const changed = new vscode.EventEmitter<void>()
+  context.subscriptions.push(
+    changed,
+    vscode.workspace.onDidChangeWorkspaceFolders(() => changed.fire()),
+    vscode.lm.registerMcpServerDefinitionProvider("aiPair.pair", {
+      onDidChangeMcpServerDefinitions: changed.event,
+      provideMcpServerDefinitions: () => {
+        const folder = vscode.workspace.workspaceFolders?.[0]
+        if (!folder) return []
+        const server = new vscode.McpStdioServerDefinition(
+          SERVER,
+          process.execPath,
+          [relayPath(context.extensionPath)],
+          { ELECTRON_RUN_AS_NODE: "1" },
+          String(context.extension.packageJSON.version),
+        )
+        server.cwd = folder.uri
+        return [server]
+      },
+    }),
+  )
 }
+
+const host: Host = { home: os.homedir(), env: process.env, platform: process.platform, exec: execProgram }
 
 export async function setUpAgent(launcher: string): Promise<void> {
-  const folder = vscode.workspace.workspaceFolders?.[0]
-  const choice = await vscode.window.showQuickPick(
-    [
-      {
-        label: "Claude Code (CLI)",
-        description: "All projects: runs `claude mcp add` in a terminal",
-        id: "claude",
-      },
-      {
-        label: "Claude Code (this project)",
-        description: "Writes .mcp.json here; also works in the Claude desktop app",
-        id: "project",
-        disabled: !folder,
-      },
-      { label: "Another agent", description: "Copies an MCP server configuration to the clipboard", id: "other" },
-    ].filter((c) => !c.disabled),
-    { title: "Which agent do you pair with?" },
-  )
-  if (!choice) return
+  type Item = vscode.QuickPickItem & { id: string }
+  const items: Item[] = AGENTS.map((agent) => ({
+    id: agent.id,
+    label: agent.label,
+    description: agent.isSetUp(host, launcher) ? "set up" : agent.detect(host) ? "installed" : undefined,
+    picked: agent.detect(host) && !agent.isSetUp(host, launcher),
+  }))
+  items.push({ id: "other", label: "Another agent", description: "Copy an MCP server configuration to the clipboard" })
+  const picked = await vscode.window.showQuickPick(items, {
+    title: "Which agents do you pair with?",
+    placeHolder: "GitHub Copilot in VS Code needs no setup: it already has the pair server.",
+    canPickMany: true,
+  })
+  if (!picked?.length) return
 
-  if (choice.id === "claude") {
-    const terminal = vscode.window.createTerminal({ name: "AI Pair setup" })
-    terminal.show()
-    terminal.sendText(`claude mcp add --scope user pair -- ${quoted(launcher)}`)
-    void vscode.window.showInformationMessage(
-      "Once it's added, restart Claude Code and ask it to pair, or run the `start` prompt of the pair server.",
-    )
-    return
-  }
-
-  if (choice.id === "project" && folder) {
-    const file = path.join(folder.uri.fsPath, ".mcp.json")
-    let config: { mcpServers?: Record<string, unknown> } = {}
+  const done: string[] = []
+  for (const agent of AGENTS.filter((a) => picked.some((p) => p.id === a.id))) {
     try {
-      config = JSON.parse(fs.readFileSync(file, "utf8")) as typeof config
-    } catch {
-      // Missing or unreadable: start fresh.
+      await agent.setUp(host, launcher)
+      done.push(agent.label)
+    } catch (e) {
+      void vscode.window.showErrorMessage(
+        `Couldn't set up ${agent.label}: ${e instanceof Error ? e.message : String(e)}`,
+      )
     }
-    config.mcpServers = { ...config.mcpServers, pair: { type: "stdio", command: portable(launcher) } }
-    fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n")
-    void vscode.window.showInformationMessage(
-      "Wrote .mcp.json. Start a new Claude Code session in this folder, approve the pair server, and ask it to pair.",
-    )
-    return
   }
-
-  const config = { mcpServers: { pair: { command: launcher } } }
-  await vscode.env.clipboard.writeText(JSON.stringify(config, null, 2))
-  void vscode.window.showInformationMessage(
-    `Copied. Add it to your agent's MCP configuration: a stdio server named "pair" running ${launcher}.`,
-  )
+  if (picked.some((p) => p.id === "other")) {
+    const config = { mcpServers: { [SERVER]: { command: launcher, args: [] } } }
+    await vscode.env.clipboard.writeText(JSON.stringify(config, null, 2))
+    void vscode.window.showInformationMessage(
+      `Copied. Add it to your agent's MCP configuration: a stdio server named "${SERVER}" running ${launcher}.`,
+    )
+  }
+  if (done.length) {
+    void vscode.window.showInformationMessage(
+      `Set up ${list(done)}. Restart it, then ask it to pair in a folder that's open here.`,
+    )
+  }
 }
 
-/** The launcher's path with the home directory as a variable, so the file works for anyone who clones the project. */
-function portable(launcher: string): string {
-  const home = os.homedir()
-  if (!launcher.startsWith(home + path.sep)) return launcher
-  const variable = process.platform === "win32" ? "${USERPROFILE}" : "${HOME}"
-  return variable + launcher.slice(home.length)
+function list(names: string[]): string {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
 }

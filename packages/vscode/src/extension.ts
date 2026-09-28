@@ -5,7 +5,7 @@ import { discoveryDir } from "@ai-pair/protocol"
 import { playDemo } from "./demo"
 import { VsCodeEditor } from "./editor"
 import { NarrationPanel } from "./panel"
-import { setUpAgent, writeLauncher } from "./setup"
+import { registerServerProvider, setUpAgent, writeLauncher } from "./setup"
 
 /** Returned from `activate`, for integration tests. */
 export type Api = { controller: Controller; playDemo: () => Promise<void>; launcher: string; ready: Promise<void> }
@@ -38,6 +38,7 @@ export function activate(context: vscode.ExtensionContext): Api {
   const ready = bridge.start()
   ready.catch((e: unknown) => void vscode.window.showErrorMessage(`AI Pair couldn't start its local server: ${String(e)}`))
   const launcher = writeLauncher(context.extensionPath)
+  registerServerProvider(context)
 
   context.subscriptions.push(
     { dispose: () => bridge.dispose() },
