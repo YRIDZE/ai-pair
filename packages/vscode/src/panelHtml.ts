@@ -75,8 +75,19 @@ export function panelHtml(cspSource: string): string {
 
   #band { flex: none; padding: 10px 14px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
   body.active #band { padding-bottom: 12px; }
-  #band.flash { animation: flash 1.4s ease-out; }
-  @keyframes flash { from { background-color: color-mix(in srgb, var(--read) 12%, var(--surface)); } to { background-color: var(--surface); } }
+  /*
+   * A new message flashes the band: a layer in the read color over its background fades out. It
+   * fades, not the background itself: a background-color animation can show its first frame again
+   * as it ends, a flicker.
+   */
+  #band { position: relative; }
+  #band::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: color-mix(in srgb, var(--read) 12%, var(--surface));
+  }
+  #band > * { position: relative; }
+  #band.flash::before { animation: flash 1.4s ease-out forwards; }
+  @keyframes flash { from { opacity: 1; } to { opacity: 0; } }
   /* Keeps the reply box still for short messages. */
   /* Room for the header and two lines of message, with the reading-pause bar under them. */
   body.active #main { min-height: calc(53px + 2 * 1.45 * 1.45 * var(--vscode-editor-font-size, 13px)); box-sizing: border-box; }
