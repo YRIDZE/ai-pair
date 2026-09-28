@@ -268,6 +268,20 @@ the code at turns that slip into an error it sees at once. The agent takes
 line numbers only from `read` and reports, never counts them; that's why a
 move on the cursor's line needs none.
 
+**Only numbers the agent has been shown.** A line number worked out instead
+of read is easily off, and with `to: "line_end"` nothing would catch it. So a
+move's `line` must be the number the agent was last shown that line at, and
+the line must still be there: nothing since may have added or removed lines
+above it, whether its own batches, earlier in the same batch or queued before
+it, the programmer, or anything else. Lines are shown by `read`, by a
+report's code and cursor, and by errors that list lines; not by edit diffs,
+whose line numbers would have to be counted. A change to the line itself
+doesn't matter, only its number. Line 1 of an empty file needs no showing.
+
+A move to any other line is rejected with `line_not_seen`, saying what the
+line reads now and, for a spot, the lines where it is. Those count as shown,
+so the agent can fix the batch without a `read`.
+
 ### `select`
 
 Selects the anchor's match, or the range from the start of `from` to the end
@@ -495,7 +509,7 @@ type BatchResult = {
 }
 
 type BatchError = {
-  kind: "anchor_not_found" | "anchor_ambiguous" | "no_selection" | "no_file"
+  kind: "anchor_not_found" | "anchor_ambiguous" | "line_not_seen" | "no_selection" | "no_file"
       | "not_your_turn" | "invalid_action" | "command_failed" | "command_declined"
   message: string
   candidates?: { line: number, context: string }[]

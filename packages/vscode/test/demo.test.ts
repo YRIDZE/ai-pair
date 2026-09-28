@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { setup, until } from "../../core/test/fake"
-import { INITIAL_SERVER, SCRIPT, SERVER, TODOS } from "../src/demo"
+import { INITIAL_SERVER, SCRIPT, SERVER, stepScript, TODOS } from "../src/demo"
 
 vi.mock("vscode", () => ({}))
 
@@ -16,8 +16,9 @@ afterEach(() => {
 it("plays through, typing the todos API", async () => {
   const { editor, controller } = setup({ [SERVER]: INITIAL_SERVER })
   await controller.start()
+  const current = {}
   for (const batch of SCRIPT) {
-    const report = await until(controller.step(batch))
+    const report = await until(stepScript(controller, batch, current))
     expect(report.batches.filter((b) => b.status !== "completed")).toEqual([])
   }
   const report = await until(controller.step([]))

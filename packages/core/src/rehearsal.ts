@@ -4,23 +4,26 @@
 
 import type { Action, BatchResult } from "@ai-pair/protocol"
 import type { Config } from "./controller"
+import type { LineIds, Sighting } from "./lines"
 import { Player, type Scene } from "./player"
 import type { CommandOutcome, EditorPort, PanelPort } from "./ports"
 import { instant } from "./timeline"
 
-/** What playing batches leaves behind: the scene, and the text of each file they edited. */
-export type Rehearsal = { scene: Scene; texts: Map<string, string> }
+/** What playing batches leaves behind: the scene, the text of each file they edited, and its lines. */
+export type Rehearsal = { scene: Scene; texts: Map<string, string>; lines: LineIds }
 
 /**
- * Plays `actions` in memory, starting from `from`. Commands don't run, and succeed. Returns the
- * batch's result, and what it leaves behind, for rehearsing the batch after it.
+ * Plays `actions` in memory, starting from `from`. Commands don't run, and succeed; a `move` goes
+ * only to a line the agent `knows`. Returns the batch's result, the lines it shows, and what it
+ * leaves behind, for rehearsing the batch after it.
  */
 export async function rehearse(
   editor: EditorPort,
   config: Config,
   from: Rehearsal,
   actions: Action[],
-): Promise<{ result: BatchResult; after: Rehearsal }> {
+  knows: (file: string, line: number, id: number) => boolean,
+): Promise<{ result: BatchResult; sightings: Sighting[]; after: Rehearsal }> {
   const scene: Scene = {
     ...from.scene,
     cursor: from.scene.cursor && { ...from.scene.cursor },
@@ -28,6 +31,7 @@ export async function rehearse(
     point: from.scene.point && { ...from.scene.point },
   }
   const memory = new MemoryEditor(editor, new Map(from.texts))
+  const lines = from.lines.fork()
   const player = new Player(scene, {
     editor: memory,
     panel: silent,
@@ -36,9 +40,11 @@ export async function rehearse(
     speed: () => 1,
     render: () => {},
     confirm: () => Promise.resolve(true),
+    lines,
+    knows,
   })
-  const result = await player.play(0, actions)
-  return { result, after: { scene, texts: memory.texts } }
+  const { result, sightings } = await player.play(0, actions)
+  return { result, sightings, after: { scene, texts: memory.texts, lines } }
 }
 
 const silent: PanelPort = { post: () => {} }

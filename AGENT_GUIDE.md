@@ -274,7 +274,9 @@ type_fast [";", ""]
   puts your code in the wrong place, in front of the programmer. So never
   work out a line number: don't add up the newlines you've typed, don't count
   braces, don't guess. Every `line` you give comes from an up-to-date `read`
-  or report, copied as it shows it.
+  or report, copied as it shows it. A move to a line you haven't been shown
+  at that number is rejected with `line_not_seen`, which says where it is
+  now.
 - **Up to date means nothing has changed the lines above it since.** A
   report shows the code of a batch that already played; any batch you've
   submitted after it that adds or removes lines above the spot makes its

@@ -85,7 +85,7 @@ export const SCRIPT: Action[][] = [
     { type: [";", ""] },
   ],
   [
-    // After a `read`: the handler's closing line is line 9.
+    // As the `read` before it shows: the handler's closing line is line 9.
     { move: { line: 9, to: "line_end" } },
     { type: [";", ""] },
     { say: "We need to import `createTodo`." },
@@ -126,7 +126,7 @@ export const SCRIPT: Action[][] = [
     { type: [";", ""] },
   ],
   [
-    // After a `read`: the handler's closing line is line 14.
+    // As the `read` before it shows: the handler's closing line is line 14.
     { move: { line: 14, to: "line_end" } },
     { type: [";", ""] },
     { say: "It needs the import too." },
@@ -137,6 +137,23 @@ export const SCRIPT: Action[][] = [
 
 const SUMMARY =
   "That's the demo: the direction first, then one path end to end, then broadening one case at a time. Updating and deleting would follow the same cycle."
+
+/**
+ * Plays a batch of the script. Like an agent, it first reads the file the batch works in, if the
+ * batch moves to a line by its number: only numbers it has been shown are allowed. `current`: the
+ * file the batches before worked in.
+ */
+export async function stepScript(controller: Controller, batch: Action[], current: { file?: string }): Promise<Report> {
+  for (const action of batch) {
+    const file = "move" in action ? action.move.file : "point" in action ? action.point.file : undefined
+    if (file) current.file = file
+  }
+  if (current.file && batch.some((a) => "move" in a && a.move.line !== undefined)) {
+    // A file the batch creates isn't there to read yet; its one line is empty.
+    await controller.read(current.file).catch(() => {})
+  }
+  return controller.step(batch)
+}
 
 function derailed(report: Report): boolean {
   return report.events.length > 0 || report.rejected !== undefined || report.batches.some((b) => b.status !== "completed")
@@ -158,8 +175,9 @@ export async function playDemo(controller: Controller, root: string): Promise<vo
 
   try {
     await controller.start("Demo: add a todos API to an Express app")
+    const current = {}
     for (const batch of SCRIPT) {
-      const report = await controller.step(batch)
+      const report = await stepScript(controller, batch, current)
       if (report.events.some((e) => e.kind === "end")) return
       if (derailed(report)) return await stopEarly(controller)
     }

@@ -36,7 +36,7 @@ const Action = z.union([
           .int()
           .optional()
           .describe(
-            "The line your cursor lands on, exactly as an up-to-date `read` or report shows it. Never count lines or guess: if you haven't seen the line's number since your batches last changed the lines above it, `read` first. Omit it to stay on your cursor's line.",
+            "The line your cursor lands on, exactly as an up-to-date `read` or report shows it. Never count lines or guess: if you haven't seen the line's number since your batches last changed the lines above it, `read` first. A number you haven't been shown for that line is rejected. Omit it to stay on your cursor's line.",
           ),
         at: z
           .string()

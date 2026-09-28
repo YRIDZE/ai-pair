@@ -1,6 +1,6 @@
 // Runs inside a real VS Code (see scripts/integration.sh): plays the demo and checks the result,
-// then that changes the programmer didn't make don't interrupt the agent, and that a programmer edit
-// does, with an exact report.
+// then that changes the programmer didn't make are reported as not theirs, interrupting only batches
+// planned against the text before them, and that a programmer edit interrupts, with an exact report.
 
 import * as assert from "node:assert/strict"
 import * as fs from "node:fs"
@@ -10,11 +10,11 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import * as vscode from "vscode"
 import type { Api } from "../src/extension"
 
-const EXPECTED_TODOS = `export type Todo = {
+const EXPECTED_TODOS = `export interface Todo {
   id: number;
   title: string;
   done: boolean;
-};
+}
 
 const todos: Todo[] = [];
 let nextId = 1;
@@ -69,7 +69,7 @@ export async function run(): Promise<void> {
   assert.equal(await buffer("ai-pair-demo/src/server.ts"), EXPECTED_SERVER)
   assert.equal(await disk("ai-pair-demo/src/server.ts"), EXPECTED_SERVER, "saved after each batch")
 
-  // Changes the programmer didn't make are reported, without interrupting: a tool writing to disk...
+  // Changes the programmer didn't make are reported, without interrupting: a tool writing to another file...
   const c = api.controller
   c.setSpeed(1)
   const until = async (done: () => boolean) => {
@@ -90,17 +90,18 @@ export async function run(): Promise<void> {
   const toolDone = await c.step([])
   assert.deepEqual(toolDone.batches.map((b) => b.status), ["completed"])
 
-  // ...and a save participant, trimming what the agent typed when its batch is saved.
+  // ...and a save participant, trimming what the agent typed when its batch is saved: its change isn't
+  // the programmer's, and the batch queued behind it, planned against the untrimmed text, is discarded.
   await vscode.workspace.getConfiguration("files").update("trimTrailingWhitespace", true, vscode.ConfigurationTarget.Global)
   await c.step([{ type: ["\nend   ", ""] }])
   const trimmed = await c.step([{ type: ["!", ""] }])
   const trimDone = await c.step([])
   await vscode.workspace.getConfiguration("files").update("trimTrailingWhitespace", undefined, vscode.ConfigurationTarget.Global)
-  assert.deepEqual([...trimmed.batches, ...trimDone.batches].map((b) => b.status), ["completed", "completed"])
+  assert.deepEqual([...trimmed.batches, ...trimDone.batches].map((b) => b.status), ["completed", "discarded"])
   assert.deepEqual([...trimmed.events, ...trimDone.events].map((e) => e.kind === "edit" && `${e.file} ${e.by}`), ["tool.txt other"])
-  assert.ok((await buffer("tool.txt")).endsWith("abc\nend!"))
+  assert.ok((await buffer("tool.txt")).endsWith("abc\nend"))
   await c.end()
-  console.log("changes by others don't interrupt")
+  console.log("changes by others are reported as theirs")
 
   // A programmer edit mid-typing interrupts, and the report shows exactly what was typed.
   const alphabet = "abcdefghijklmnopqrstuvwxyz"

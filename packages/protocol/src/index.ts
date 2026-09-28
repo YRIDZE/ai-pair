@@ -80,6 +80,7 @@ export type BatchStatus = "completed" | "interrupted" | "failed" | "discarded"
 export type ErrorKind =
   | "anchor_not_found"
   | "anchor_ambiguous"
+  | "line_not_seen"
   | "no_selection"
   | "no_file"
   | "not_your_turn"

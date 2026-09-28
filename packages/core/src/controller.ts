@@ -4,6 +4,7 @@
 import type { Action, BatchResult, Event, Excerpt, FileContent, Report, Turn } from "@ai-pair/protocol"
 import { actionKinds, CURSOR_MARKER, ToolError } from "@ai-pair/protocol"
 import { fileDiff } from "./diff"
+import { LineIds, type Sighting } from "./lines"
 import { agentPath, displayPath, Player, type Scene } from "./player"
 import type { AgentState, Change, CursorView, EditorPort, PanelPort, Ref, SharedSelection } from "./ports"
 import { rehearse, type Rehearsal } from "./rehearsal"
@@ -78,6 +79,10 @@ type Session = {
   navigatorTimer?: ReturnType<typeof setTimeout>
   /** The cursor's line as the agent last saw it in a report, so reports only show it when it changed. */
   seenCursor?: string
+  /** The identities of the lines of the files in the editor. */
+  lines: LineIds
+  /** For each file, the line the agent was last shown at each number, by its identity. */
+  seen: Map<string, Map<number, number>>
 }
 
 type Call = {
@@ -125,6 +130,7 @@ export class Controller {
         allowedCommands: new Set(),
       }
       const timeline = new Timeline(this.pauseReasons.size > 0)
+      const lines = LineIds.editor()
       const s: Session = {
         task,
         scene,
@@ -136,6 +142,7 @@ export class Controller {
           speed: () => this.speed,
           render: () => this.render(),
           confirm: (id, command) => this.confirm(s, id, command),
+          lines,
         }),
         queue: [],
         finished: [],
@@ -147,6 +154,8 @@ export class Controller {
         running: false,
         ended: false,
         navigatorReady: false,
+        lines,
+        seen: new Map(),
       }
       this.session = s
       this.lastPosted = ""
@@ -166,7 +175,7 @@ export class Controller {
       const rehearsal = s.stale || s.ended ? undefined : await this.rehearse(s, actions)
       // An interruption arriving meanwhile discards it, like any batch planned without knowing about it.
       const current = rehearsal && !s.stale && !s.ended
-      if (current && rehearsal.result.status === "failed") return this.reject(s, actions, rehearsal.result)
+      if (current && rehearsal.result.status === "failed") return this.reject(s, actions, rehearsal)
       const batch: Batch = { id: this.nextBatchId++, actions, state: "queued", after: rehearsal?.after }
       if (current) {
         s.queue.push(batch)
@@ -196,9 +205,14 @@ export class Controller {
     const s = this.requireSession()
     const path = this.resolvePath(s, file)
     return (async () => {
-      const { lines, finalNewline } = fileLines(this.planned(s, path) ?? (await this.editor.getText(path)))
+      const planned = this.planned(s, path)
+      const text = planned ?? (await this.editor.getText(path))
+      const { lines, finalNewline } = fileLines(text)
       const from = Math.max(1, fromLine ?? 1)
       const to = Math.min(lines.length, toLine ?? lines.length)
+      const numbers = Array.from({ length: Math.max(0, to - from + 1) }, (_, i) => from + i)
+      // As the queued batches leave the file, if they edit it.
+      this.saw(s, planned !== undefined ? s.queue.at(-1)!.after!.lines : s.lines, { file: path, text, lines: numbers })
       const content: FileContent = {
         file: this.displayPath(s, path),
         dirty: await this.editor.isDirty(path),
@@ -289,7 +303,11 @@ export class Controller {
 
   /** Edits to a file are reported as one diff, as the programmer's if any of them was. */
   private recordEdit(s: Session, file: string, before: string, after: string, changes: Change[], by: EditEvent["by"]): void {
-    for (const change of changes) s.player.transform(file, change)
+    s.lines.of(file, before)
+    for (const change of changes) {
+      s.player.transform(file, change)
+      s.lines.apply(file, change)
+    }
     if (!s.baselines.has(file)) {
       s.baselines.set(file, before)
       s.events.push({ kind: "edit", file, by })
@@ -436,15 +454,17 @@ export class Controller {
 
   /** Plays a batch in memory, from where the queued batches leave off, or the editor as it is. */
   private rehearse(s: Session, actions: Action[]): ReturnType<typeof rehearse> {
-    const from = s.queue.at(-1)?.after ?? { scene: s.scene, texts: new Map() }
-    return rehearse(this.editor, this.config, from, actions)
+    const from = s.queue.at(-1)?.after ?? { scene: s.scene, texts: new Map(), lines: s.lines }
+    return rehearse(this.editor, this.config, from, actions, (file, line, id) => s.seen.get(file)?.get(line) === id)
   }
 
   /** Reports a batch that played in memory failed, without queuing it; nothing else changes. */
-  private async reject(s: Session, actions: Action[], rehearsed: BatchResult): Promise<Report> {
+  private async reject(s: Session, actions: Action[], rehearsal: Awaited<ReturnType<typeof rehearse>>): Promise<Report> {
+    const rehearsed = rehearsal.result
     const index = actions.length - (rehearsed.unplayed?.length ?? 0) + 1
     const rejected: NonNullable<Report["rejected"]> = { index, action: actions[index - 1]!, error: rehearsed.error! }
     if (rehearsed.code) rejected.code = rehearsed.code
+    for (const sighting of rehearsal.sightings) this.saw(s, rehearsal.after.lines, sighting)
     const report = { ...this.snapshot(s, undefined, false), rejected }
     this.render()
     return this.withCursor(s, report)
@@ -568,13 +588,28 @@ export class Controller {
       if (b.code && line) s.seenCursor = `${b.code.file}:${line.number}:${line.text}`
     }
     if (!s.scene.cursor) return report
-    const cursor = await s.player.code({ moved: true })
-    const line = cursor?.lines.find((l) => l.text.includes(CURSOR_MARKER))
-    if (!cursor || !line) return report
-    const key = `${cursor.file}:${line.number}:${line.text}`
+    const shown = await s.player.code({ moved: true })
+    const line = shown?.code.lines.find((l) => l.text.includes(CURSOR_MARKER))
+    if (!shown || !line) return report
+    const key = `${shown.code.file}:${line.number}:${line.text}`
     if (key === s.seenCursor) return report
     s.seenCursor = key
-    return { ...report, cursor }
+    this.saw(s, s.lines, shown.sighting)
+    return { ...report, cursor: shown.code }
+  }
+
+  /**
+   * The agent is shown lines: it knows which line each number is, while it stays that line's.
+   * `lines`: of the version shown, which may be a batch's, as it will play or would have.
+   */
+  private saw(s: Session, lines: LineIds, { file, text, lines: numbers }: Sighting): void {
+    const ids = lines.of(file, text)
+    let seen = s.seen.get(file)
+    if (!seen) s.seen.set(file, (seen = new Map()))
+    for (const n of numbers) {
+      const id = ids[n - 1]
+      if (id !== undefined) seen.set(n, id)
+    }
   }
 
   /** Takes everything not yet reported. `submitted`: the batch the call submitted, if any. */
@@ -653,8 +688,11 @@ export class Controller {
         if (!batch) break
         this.startHead(s)
         this.render()
-        const result = await s.player.play(batch.id, batch.actions)
+        const { result, sightings } = await s.player.play(batch.id, batch.actions)
         if (this.session !== s) break
+        // It played as it did in memory, so the lines it typed are the ones later batches were rehearsed with.
+        if (result.status === "completed" && batch.after) s.lines.adopt(batch.after.lines)
+        for (const sighting of sightings) this.saw(s, s.lines, sighting)
         batch.state = "done"
         batch.result = result
         s.queue = s.queue.filter((b) => b !== batch)

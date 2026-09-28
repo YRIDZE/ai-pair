@@ -4,10 +4,11 @@
 import type { Action, BatchResult, Candidate, Code, ErrorKind, RunResult, Turn, TypeText } from "@ai-pair/protocol"
 import * as nodePath from "node:path"
 import { actionKinds, CURSOR_MARKER, moveProblem } from "@ai-pair/protocol"
-import { resolveSpan, resolveSpot, type Resolution } from "./anchors"
+import { resolveSpan, resolveSpot, spotCandidates, type Resolution } from "./anchors"
 import type { Config } from "./controller"
-import type { EditorPort, Focus, PanelPort } from "./ports"
-import { fileLines, isLineStart, lineEnd, position } from "./text"
+import type { LineIds, Sighting } from "./lines"
+import type { Change, EditorPort, Focus, PanelPort } from "./ports"
+import { fileLines, isLineStart, lineEnd, lineText, position } from "./text"
 import type { Pacing } from "./timeline"
 import { planTyping, readingTime } from "./typing"
 
@@ -38,6 +39,13 @@ export type Stage = {
   render(): void
   /** Waits for the programmer to allow or decline a command. */
   confirm(id: number, command: string): Promise<boolean>
+  /** The identities of the lines of the files played in. */
+  lines: LineIds
+  /**
+   * Whether the line numbered `line` in `file` is the one the agent was last shown there, by its
+   * identity. Given, a `move` only goes to a line the agent knows the number of.
+   */
+  knows?(file: string, line: number, id: number): boolean
 }
 
 type Range = { file: string; start: number; end: number }
@@ -49,12 +57,14 @@ type Range = { file: string; start: number; end: number }
 type Outcome =
   | { kind: "ok" }
   | { kind: "interrupted"; rest?: Action; consumed?: boolean }
-  | { kind: "error"; error: ErrorKind; message: string; candidates?: Candidate[]; consumed?: boolean }
+  | { kind: "error"; error: ErrorKind; message: string; candidates?: Candidate[]; consumed?: boolean; sighting?: Sighting }
 
 /** The batch being played: what it touched, for saving and for its report's code. */
 type Playing = {
   touched: Set<string>
   runs: RunResult[]
+  /** The lines its report shows. */
+  sightings: Sighting[]
   /** The text its edits changed, tracked through later edits. */
   span?: Range
   moved: boolean
@@ -75,8 +85,12 @@ function fail(error: ErrorKind, message: string): Outcome {
   return { kind: "error", error, message }
 }
 
-function failed(r: Resolution & { ok: false }): Outcome {
-  return { kind: "error", error: r.kind, message: r.message, candidates: r.candidates }
+/** `file` and `text`: where the resolution failed, so the lines it lists are shown. */
+function failed(r: Resolution & { ok: false }, file: string, text: string, shown: number[] = []): Outcome {
+  const lines = [...shown, ...(r.candidates ?? []).map((c) => c.line)]
+  const outcome: Outcome = { kind: "error", error: r.kind, message: r.message, candidates: r.candidates }
+  if (lines.length > 0) outcome.sighting = { file, text, lines }
+  return outcome
 }
 
 /** Absolute path for a path from the agent: relative to its working directory, if it gave one. */
@@ -103,9 +117,9 @@ export class Player {
     private readonly stage: Stage,
   ) {}
 
-  /** Plays a batch, saves the files it edited, and says how it went. */
-  async play(id: number, actions: Action[]): Promise<BatchResult> {
-    const playing: Playing = { touched: new Set(), runs: [], moved: false }
+  /** Plays a batch, saves the files it edited, and says how it went, and which lines that shows. */
+  async play(id: number, actions: Action[]): Promise<{ result: BatchResult; sightings: Sighting[] }> {
+    const playing: Playing = { touched: new Set(), runs: [], sightings: [], moved: false }
     this.playing = playing
     let result: BatchResult
     try {
@@ -116,18 +130,21 @@ export class Player {
     if (playing.runs.length > 0) result.runs = playing.runs
     if (result.status !== "discarded") {
       try {
-        const code = await this.code(playing)
-        if (code) result.code = code
+        const shown = await this.code(playing)
+        if (shown) {
+          result.code = shown.code
+          playing.sightings.push(shown.sighting)
+        }
       } catch {
         // The file is gone; the report just can't show it.
       }
     }
     await this.save(playing)
-    return result
+    return { result, sightings: playing.sightings }
   }
 
   /** The lines changed in `span`, extended to the cursor's line, with context around, and the cursor marked. */
-  async code({ span, moved }: { span?: Range; moved: boolean }): Promise<Code | undefined> {
+  async code({ span, moved }: { span?: Range; moved: boolean }): Promise<{ code: Code; sighting: Sighting } | undefined> {
     const s = this.scene
     const file = span?.file ?? (moved ? s.cursor?.file : undefined)
     if (!file) return undefined
@@ -160,7 +177,7 @@ export class Player {
       }),
     }
     if (to >= last) code.end = { final_newline: finalNewline }
-    return code
+    return { code, sighting: { file, text, lines: numbers } }
   }
 
   /** Keeps the positions playback holds in place through a change someone else made. */
@@ -196,6 +213,7 @@ export class Player {
         return this.stopped(id, actions.slice(i), i > 0)
       }
       if (outcome.kind === "error") {
+        if (outcome.sighting) playing.sightings.push(outcome.sighting)
         const result: BatchResult = { id, status: "failed", error: { kind: outcome.error, message: outcome.message } }
         if (outcome.candidates) result.error!.candidates = outcome.candidates
         const unplayed = outcome.consumed ? rest : actions.slice(i)
@@ -278,12 +296,15 @@ export class Player {
           return fail("anchor_not_found", `There's no line ${m.line}: ${this.displayPath(file)} has ${has}.`)
         }
         line = m.line
+        const unseen = this.unseen(file, text, line, m.at)
+        if (unseen) return unseen
       }
       let offset: number
       if (m.to === "line_end") offset = lineEnd(text, line)
       else {
         const r = resolveSpot(text, { at: m.at!, line })
-        if (!r.ok) return failed(r)
+        // A spot not on its line says what the line reads.
+        if (!r.ok) return failed(r, file, text, r.kind === "anchor_not_found" ? [line] : [])
         offset = r.range.start
       }
       const near =
@@ -303,8 +324,9 @@ export class Player {
       if (!s.cursor) return fail("no_file", "The agent cursor isn't in a file yet; `move` first.")
       if (!(await this.delay(timing.beforeSelectMs))) return { kind: "interrupted" }
       await editor.show(s.cursor.file)
-      const r = resolveSpan(await editor.getText(s.cursor.file), action.select)
-      if (!r.ok) return failed(r)
+      const text = await editor.getText(s.cursor.file)
+      const r = resolveSpan(text, action.select)
+      if (!r.ok) return failed(r, s.cursor.file, text)
       s.selection = r.range
       s.cursor.offset = r.range.end
       playing.moved = true
@@ -327,11 +349,12 @@ export class Player {
       const { file } = s.cursor
       const { start, end } = s.selection
       await editor.show(file)
+      this.stage.lines.of(file, await editor.getText(file))
       this.clearPoint()
       s.cursor.offset = start
       s.selection = null
       this.touch(playing, file, start, end - start, 0)
-      await editor.edit(file, start, end - start, "", { undoStopBefore: true, undoStopAfter: true })
+      await this.edit(file, { offset: start, deleteLength: end - start, text: "" }, { undoStopBefore: true, undoStopAfter: true })
       this.stage.render()
       await this.delay(timing.afterDeleteMs)
       return ok
@@ -344,7 +367,7 @@ export class Player {
       if (s.turn === "agent") await editor.show(file)
       const text = await editor.getText(file)
       const r = resolveSpan(text, p)
-      if (!r.ok) return failed(r)
+      if (!r.ok) return failed(r, file, text)
       s.point = { file, ...r.range }
       if (s.turn === "agent") {
         // The view goes to the pointed code, so the `say` about it plays while the programmer looks at it.
@@ -443,6 +466,7 @@ export class Player {
     this.clearPoint()
 
     const doc = await editor.getText(cursor.file)
+    this.stage.lines.of(cursor.file, doc)
     const eol = await editor.eol(cursor.file)
     const insertAt = s.selection ? s.selection.start : cursor.offset
     const { timing, random } = this.stage.config()
@@ -466,7 +490,7 @@ export class Player {
       cursor.offset = start + insert.length
       s.selection = null
       this.touch(playing, cursor.file, start, deleteLength, insert.length)
-      await editor.edit(cursor.file, start, deleteLength, insert, {
+      await this.edit(cursor.file, { offset: start, deleteLength, text: insert }, {
         undoStopBefore: i === 0,
         undoStopAfter: i === chunks.length - 1,
       })
@@ -480,6 +504,34 @@ export class Player {
       await this.delay(timing.afterMoveNearMs * scale)
     }
     return ok
+  }
+
+  /** Edits a file, which its lines' identities follow. */
+  private edit(file: string, change: Change, options: { undoStopBefore: boolean; undoStopAfter: boolean }): Promise<void> {
+    this.stage.lines.apply(file, change)
+    return this.stage.editor.edit(file, change.offset, change.deleteLength, change.text, options)
+  }
+
+  /**
+   * A move to a line whose number the agent may have worked out instead of being shown, if it
+   * isn't one it knows. Says what the line reads now, and where the spot is, which it's shown
+   * then. An empty file's one line needs no showing.
+   */
+  private unseen(file: string, text: string, line: number, at: string | undefined): Outcome | undefined {
+    const { knows, lines } = this.stage
+    if (!knows || text === "" || knows(file, line, lines.of(file, text)[line - 1]!)) return undefined
+    const candidates = at === undefined ? [] : spotCandidates(text, at)
+    const reads = `line ${line} reads ${JSON.stringify(lineText(text, line))}`
+    const where =
+      at === undefined ? "." : candidates.length > 0 ? ", and the spot is on these lines:" : ", and the spot isn't anywhere in the file."
+    const outcome: Outcome = {
+      kind: "error",
+      error: "line_not_seen",
+      message: `You haven't seen line ${line} of ${this.displayPath(file)} in an up-to-date \`read\` or report, so its number may be off: take line numbers from them, never work them out. Now, ${reads}${where}`,
+      sighting: { file, text, lines: [line, ...candidates.map((c) => c.line)] },
+    }
+    if (candidates.length > 0) outcome.candidates = candidates
+    return outcome
   }
 
   /** Saves the files the batch has edited, so tools reading from disk see them. */

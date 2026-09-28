@@ -69,10 +69,7 @@ export function resolveAnchor(text: string, anchor: Anchor): Resolution {
  * `at` has exactly one marker; see `moveProblem`.
  */
 export function resolveSpot(text: string, spot: Spot): Resolution {
-  const at = spot.at.indexOf(CURSOR_MARKER)
-  const before = spot.at.slice(0, at)
-  const whole = before + spot.at.slice(at + CURSOR_MARKER.length)
-  const found = findAll(text, whole).map((start) => start + before.length)
+  const { whole, found } = findSpot(text, spot.at)
   const here = found.filter((at) => position(text, at).line === spot.line)
   if (here.length === 1) return { ok: true, range: { start: here[0]!, end: here[0]! } }
   if (here.length > 1) {
@@ -92,6 +89,19 @@ export function resolveSpot(text: string, spot: Spot): Resolution {
     message: `The spot isn't on line ${spot.line}: ${reads}. It's on these lines:`,
     candidates: candidates(text, found),
   }
+}
+
+/** Where a spot's text occurs: the offsets of its marker, in each match. */
+function findSpot(text: string, at: string): { whole: string; found: number[] } {
+  const marker = at.indexOf(CURSOR_MARKER)
+  const before = at.slice(0, marker)
+  const whole = before + at.slice(marker + CURSOR_MARKER.length)
+  return { whole, found: findAll(text, whole).map((start) => start + before.length) }
+}
+
+/** The lines a spot's text is on, anywhere in `text`. */
+export function spotCandidates(text: string, at: string): Candidate[] {
+  return candidates(text, findSpot(text, at).found)
 }
 
 /** Resolves a single anchor, or a from/to range: `to` is its first match after `from`. */
