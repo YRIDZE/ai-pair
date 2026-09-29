@@ -73,6 +73,8 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
   private pulse?: ReturnType<typeof setInterval>
   private pulseOn = true
   private selfNavUntil = 0
+  /** How many lines each editor group's viewport shows, as of the last time it showed no document's end. */
+  private readonly viewportLines = new Map<vscode.ViewColumn | undefined, number>()
   private readonly disposables: vscode.Disposable[] = []
   private readonly cursorTypes: Record<string, vscode.TextEditorDecorationType>
   private labelTypes: Record<string, vscode.TextEditorDecorationType> = {}
@@ -108,7 +110,10 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
       vscode.workspace.onDidChangeTextDocument((e) => this.onChange(e)),
       vscode.window.onDidChangeActiveTextEditor((e) => this.onActiveEditor(e)),
       vscode.window.onDidChangeTextEditorVisibleRanges((e) => this.onScroll(e)),
-      vscode.window.onDidChangeVisibleTextEditors(() => this.redraw()),
+      vscode.window.onDidChangeVisibleTextEditors((editors) => {
+        for (const editor of editors) this.viewport(editor)
+        this.redraw()
+      }),
       vscode.window.onDidChangeTextEditorSelection((e) => this.onSelectionChange(e.textEditor)),
       this.terminals,
     )
@@ -343,6 +348,7 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
   }
 
   private onScroll(e: vscode.TextEditorVisibleRangesChangeEvent): void {
+    this.viewport(e.textEditor)
     const target = this.target()
     if (Date.now() < this.selfNavUntil || !target || !FOLLOWING.has(this.state)) return
     if (e.textEditor.document.uri.fsPath !== target.file) return
@@ -365,15 +371,38 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
     const visible = editor?.visibleRanges[0]
     if (!editor || !visible) return
     const line = editor.document.positionAt(target.offset).line
-    const height = Math.max(1, visible.end.line - visible.start.line)
+    const { atEnd, known } = this.viewport(editor)
+    const shown = Math.max(1, visible.end.line - visible.start.line)
+    const height = atEnd ? Math.max(shown, known ?? 0) : shown
     const top = visible.start.line + Math.floor(height * 0.1)
     const bottom = visible.start.line + Math.floor(height * 0.6)
-    // At the top of a file the target can't sit lower in the viewport, and that's fine.
-    const inBand = line <= bottom && (line >= top || visible.start.line === 0)
+    // At the top of a file the target can't sit lower in the viewport, and that's fine. At its end,
+    // with the viewport's height unknown, the target is in view: everything to the end is.
+    const inBand = (line <= bottom || (atEnd && known === undefined)) && (line >= top || visible.start.line === 0)
     if (!force && inBand) return
     const scrollTo = Math.max(0, line - Math.floor(height / 3))
+    // A reveal at the top leaves room above for sticky scroll or `editor.cursorSurroundingLines`,
+    // up to half the viewport, so reveal that much lower for `scrollTo` to end up at the top.
+    const options = vscode.workspace.getConfiguration("editor", editor.document)
+    const sticky = options.get("stickyScroll.enabled", true) ? options.get("stickyScroll.maxLineCount", 5) : 0
+    const room = Math.floor(Math.min(height / 2, Math.max(options.get("cursorSurroundingLines", 0), sticky)))
     this.selfNav()
-    editor.revealRange(new vscode.Range(scrollTo, 0, scrollTo, 0), vscode.TextEditorRevealType.AtTop)
+    editor.revealRange(new vscode.Range(scrollTo + room, 0, scrollTo + room, 0), vscode.TextEditorRevealType.AtTop)
+  }
+
+  /**
+   * Whether the editor's visible range reaches the document's last line, and how many lines its
+   * group's viewport shows, if known. The visible range stops at the last line, so near the end of a
+   * document it's shorter than the viewport: the height is the one the group last showed in full.
+   */
+  private viewport(editor: vscode.TextEditor): { atEnd: boolean; known?: number } {
+    const ranges = editor.visibleRanges
+    const visible = ranges[0]
+    if (!visible) return { atEnd: false, known: this.viewportLines.get(editor.viewColumn) }
+    const atEnd = ranges.at(-1)!.end.line >= editor.document.lineCount - 1
+    // Not with folded code in view: its hidden lines would count.
+    if (!atEnd && ranges.length === 1) this.viewportLines.set(editor.viewColumn, visible.end.line - visible.start.line)
+    return { atEnd, known: this.viewportLines.get(editor.viewColumn) }
   }
 
   private redraw(): void {
