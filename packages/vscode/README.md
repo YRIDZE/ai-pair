@@ -4,7 +4,9 @@ Pair program with an AI agent. The agent gets its own cursor in your editor. It
 types at a human pace and narrates what it's doing in the **Pair** panel, and
 you can interrupt it, reply, or take over at any moment.
 
-It works with your existing coding agent (tested with Claude Code) through MCP.
+It works with your existing coding agent through MCP: setup is built in for
+Claude Code, Codex, OpenCode, Gemini CLI, Cursor and GitHub Copilot, and any
+other agent with MCP can be connected by hand. Claude Code is the tested one.
 
 ## Set up
 
@@ -12,7 +14,8 @@ It works with your existing coding agent (tested with Claude Code) through MCP.
 2. Run **AI Pair: Set Up Agent** and pick your agents: Claude Code, Codex,
    OpenCode, Gemini CLI, Cursor. It adds a `pair` server to each one's
    user-wide MCP configuration. **Another agent** copies an MCP configuration
-   instead: a stdio server named `pair` running `~/.ai-pair/bin/pair-mcp`.
+   instead: a stdio server named `pair` running `~/.ai-pair/bin/pair-mcp`
+   (`pair-mcp.cmd` on Windows).
    GitHub Copilot needs no setup.
 3. Restart your agent.
 

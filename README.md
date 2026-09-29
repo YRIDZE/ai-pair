@@ -10,11 +10,14 @@ don't like the direction, and write parts yourself. Or you watch it build
 something with a technology you want to learn, and follow along as if it were
 a tutorial written for you.
 
-It works with your existing coding agent (tested with Claude Code) through
-MCP, so the agent keeps all its usual tools.
+It works with your existing coding agent through MCP, so the agent keeps all
+its usual tools. Setup is built in for Claude Code, Codex, OpenCode, Gemini
+CLI, Cursor and GitHub Copilot, and any other agent that supports MCP can be
+connected by hand. Claude Code is the tested one.
 
 > **Status:** early and experimental. VS Code only; macOS is the tested
-> platform. Not on the Marketplace yet.
+> platform, and Windows and Linux are meant to work. Not on the Marketplace
+> yet.
 
 ## Install
 
@@ -35,9 +38,11 @@ Or, instead of the last line, in VS Code: Extensions view → `…` menu →
 ## Connect your agent
 
 1. **Open a project folder in VS Code.** On its first start, the extension
-   installs a small launcher at `~/.ai-pair/bin/pair-mcp`. That's the MCP
-   server your agent runs, and each VS Code window registers itself so the
-   server can find it.
+   installs a small launcher at `~/.ai-pair/bin/pair-mcp`
+   (`%USERPROFILE%\.ai-pair\bin\pair-mcp.cmd` on Windows). That's the MCP
+   server your agent runs. It runs with VS Code's own runtime, so you don't
+   need Node.js for it. Each VS Code window registers itself so the server can
+   find it.
 2. **Run *AI Pair: Set Up Agent*** from the command palette (VS Code also
    offers this the first time the extension starts). Pick your agents; the
    ones it finds installed are already checked. For each one, it adds a
@@ -51,7 +56,7 @@ Or, instead of the last line, in VS Code: Extensions view → `…` menu →
    | **OpenCode** | `~/.config/opencode/opencode.json` (`.jsonc` if you have one), on Windows too |
    | **Gemini CLI** | `~/.gemini/settings.json` |
    | **Cursor** | `~/.cursor/mcp.json` |
-   | **Another agent** | copies an MCP server configuration to the clipboard: a stdio server named `pair` running `~/.ai-pair/bin/pair-mcp` |
+   | **Another agent** | copies an MCP server configuration to the clipboard: a stdio server named `pair` running the launcher |
 
    **GitHub Copilot** in VS Code needs none of this: the extension gives it
    the `pair` server itself.
@@ -103,7 +108,8 @@ open folder.
   it.
 - **The agent doesn't have the pair tools.** Restart the agent after setting
   it up. *AI Pair: Set Up Agent* marks the agents that are set up. With
-  Claude Code, `claude mcp list` should show `pair`.
+  Claude Code, `claude mcp list` should show `pair`. With Copilot, `pair`
+  should be in *MCP: List Servers*; start it there if it isn't running.
 - **After updating the extension,** reload the VS Code window and restart the
   agent.
 
