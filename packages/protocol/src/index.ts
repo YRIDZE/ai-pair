@@ -124,6 +124,7 @@ export type ErrorKind =
   | "invalid_action"
   | "command_failed"
   | "command_declined"
+  | "save_failed"
 
 export type Candidate = { line: number; context: string }
 
@@ -172,6 +173,8 @@ export type BatchResult = {
    */
   unplayed?: Action[]
   runs?: RunResult[]
+  /** Files the batch edited that couldn't be saved: the buffer has the edits, the file on disk doesn't. */
+  unsaved?: { file: string; error: string }[]
 }
 
 export type LineColumn = { line: number; column: number }

@@ -210,10 +210,11 @@ export class VsCodeEditor implements EditorPort, vscode.Disposable {
 
   async save(file: string): Promise<void> {
     const doc = this.openDocument(file)
-    if (!doc) return
+    if (!doc?.isDirty) return
     this.saving.add(file)
     try {
-      await doc.save()
+      // A save that fails, say because the file on disk is newer, resolves to false instead of throwing.
+      if (!(await doc.save())) throw new Error("the editor didn't save it; the file on disk may have changed")
     } finally {
       this.saving.delete(file)
     }

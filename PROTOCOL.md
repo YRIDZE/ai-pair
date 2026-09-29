@@ -507,11 +507,13 @@ type BatchResult = {
     running?: true            // still running in its terminal
     shell?: string
   }[]
+  unsaved?: { file: string, error: string }[]  // edited files that couldn't be saved
 }
 
 type BatchError = {
   kind: "no_line" | "not_found" | "ambiguous" | "line_not_seen" | "no_selection" | "no_cursor"
       | "not_your_turn" | "invalid_action" | "command_failed" | "command_declined"
+      | "save_failed"
   message: string
   candidates?: { line: number, context: string }[]
 }
@@ -591,6 +593,13 @@ message). The agent receives the programmer's edits since the last report and
 - Files the agent edits via the protocol are **saved automatically** when a
   batch ends, and before each `run`, so that tools reading from disk (tests,
   compilers, the agent's native file tools) see the current state.
+- A save can fail, when the file changed on disk meanwhile, say. The buffer
+  still has the agent's edits, but the file on disk doesn't: the batch's
+  report says which files it couldn't save (`unsaved`), and a `run` after such
+  a save doesn't run, failing the batch with `save_failed`, since the command
+  would read the old file. The agent doesn't overwrite the other version: it
+  asks the programmer to resolve it in the editor, which offers to compare the
+  two or overwrite, and resubmits the `run` after.
 - The agent may still use its native file tools. The rule is: anything the
   programmer should follow goes through the protocol; purely mechanical changes
   (generated files, lockfiles, bulk renames) may be done natively, announced in
