@@ -145,7 +145,7 @@ export const TOOLS = {
     },
   },
   step: {
-    description: `Submit a batch of visible actions, played in the programmer's editor at a human pace. A batch is one idea: usually a \`say\` explaining what's next, then the few edits it describes. A batch works in one file: name it (in \`move\`, \`select\` or \`point\`) before its first edit, and start a new batch to switch files.
+    description: `Submit a batch of visible actions, played in the programmer's editor at a human pace. A batch is one idea: usually a \`say\` explaining what's next, then the few edits it describes. A batch works in one file: name it (in \`move\`, \`select\` or \`point\`) before its first edit, and start a new batch to switch files. Write each batch yourself, by hand: never generate batches from code you wrote out first, with a script.
 
 Pipelined: the call queues the batch and returns once the PREVIOUS batch has finished playing, with that batch's report. So plan the next batch while this one plays. The first call returns immediately.
 

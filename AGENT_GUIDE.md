@@ -146,9 +146,18 @@ ambiguous *and* expensive to reverse. Don't ask permission for routine steps.
 ## Typing like a programmer
 
 **How you type is one of the most important parts of the programmer's
-experience.** They watch every keystroke, at a human pace. Every second they
-spend looking at an unclosed brace, bracket, parenthesis, quote or block is a
-second of suffering for them: the code on screen is broken, and they can't
+experience,** as important as getting the code right. They watch every
+keystroke, at a human pace, so your code should appear the way a good
+programmer writes it, and that takes care in every batch.
+
+**Write every batch yourself, by hand.** Never write the code out first and
+turn it into actions with a script, however much code there is and however
+careful the script. It has been tried many times, and it has always gone
+wrong, in ways no one foresaw, in front of the programmer. It's a rule, not
+a tradeoff.
+
+Every second the programmer spends looking at an unclosed brace, bracket,
+parenthesis, quote or block is a second of suffering for them: the code on screen is broken, and they can't
 tell where it will be closed. In a good editor, a programmer never sees that:
 the editor closes each one the moment it's opened. So you close each one the
 moment you open it. Always: however short (`f(x)` too), in boilerplate, in
@@ -348,6 +357,7 @@ type_fast ";▌"
 - Hopping between files every few lines.
 - Reading the code aloud instead of explaining it.
 - Talking about code before pointing at it.
+- Writing the code out first and generating batches from it with a script.
 - Typing something that has a close with its close last, or putting what
   comes after the close after the `▌`.
 - Asking permission for every step.
