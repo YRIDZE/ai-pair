@@ -51,6 +51,11 @@ function renderBatch(b: BatchResult): string {
   const parts = [b.code ? `Batch ${b.id} ${b.status}, in ${b.code.file}:` : `Batch ${b.id} ${b.status}.`]
   if (b.code) parts.push(renderCode(b.code))
   for (const run of b.runs ?? []) parts.push(renderRun(run))
+  for (const u of b.unsaved ?? []) {
+    parts.push(
+      `Couldn't save ${u.file} (${u.error}): the editor has your edits, the file on disk doesn't, so commands and your file tools see the old file. Ask the programmer to resolve it in the editor, which offers to compare or overwrite.`,
+    )
+  }
   if (b.error) parts.push(renderError(b.error))
   if (b.unplayed) {
     const label = b.error && b.error.kind !== "command_failed" ? "Not played, starting with the one that failed:" : "Not played:"

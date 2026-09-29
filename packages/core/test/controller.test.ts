@@ -1291,3 +1291,35 @@ describe("run", () => {
     expect(editor.commands).toEqual([])
   })
 })
+
+describe("saving", () => {
+  it("says which files a batch couldn't save", async () => {
+    const { editor, controller } = setup({ "a.ts": "x\n" })
+    editor.save = async () => {
+      throw new Error("the file on disk is newer")
+    }
+    await controller.start()
+    await controller.read("a.ts")
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: " // a▌" }])
+    const report = await until(controller.step([]))
+    expect(report.batches[0]).toMatchObject({ status: "completed", unsaved: [{ file: "a.ts", error: "the file on disk is newer" }] })
+  })
+
+  it("doesn't run a command after a save that failed, since it would read the old file", async () => {
+    const { editor, controller } = setup({ "a.ts": "x\n" }, { confirmCommands: false })
+    editor.save = async () => {
+      throw new Error("the file on disk is newer")
+    }
+    editor.commandScript["node a.ts"] = { ms: 100, exitCode: 0 }
+    await controller.start()
+    await controller.read("a.ts")
+    await controller.step([{ move: { file: "a.ts", line: 1, to: "line_end" } }, { type: " // a▌" }, { run: "node a.ts" }])
+    const report = await until(controller.step([]))
+    expect(report.batches[0]).toMatchObject({ status: "failed", error: { kind: "save_failed" }, unplayed: [{ run: "node a.ts" }] })
+    expect(report.batches[0]!.error!.message).toMatch(/a\.ts \(the file on disk is newer\)/)
+    expect(report.batches[0]!.error!.message).toMatch(/Ask the programmer/)
+    // The error names the file, so the batch doesn't list it again.
+    expect(report.batches[0]!.unsaved).toBeUndefined()
+    expect(editor.commands).toEqual([])
+  })
+})

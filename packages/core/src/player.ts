@@ -142,7 +142,9 @@ export class Player {
         // The file is gone; the report just can't show it.
       }
     }
-    await this.save(playing)
+    const unsaved = await this.save(playing)
+    // A `save_failed` error already names them.
+    if (unsaved.length > 0 && result.error?.kind !== "save_failed") result.unsaved = unsaved
     return { result, sightings: playing.sightings }
   }
 
@@ -392,7 +394,14 @@ export class Player {
     const command = action.run
     if (typeof command !== "string" || command.trim() === "") return fail("invalid_action", "`run` needs a command.")
     // Commands read files from disk, so the batch's edits so far go there first.
-    await this.save(playing)
+    const unsaved = await this.save(playing)
+    if (unsaved.length > 0) {
+      const which = unsaved.map((u) => `${u.file} (${u.error})`).join(", ")
+      return fail(
+        "save_failed",
+        `Couldn't save ${which}, so the command didn't run: it would read the old file from disk. Ask the programmer to resolve it in the editor, which offers to compare or overwrite, then run it again.`,
+      )
+    }
     const id = nextRunId++
     const signal = this.stage.pacing.signal
 
@@ -604,15 +613,17 @@ export class Player {
     return outcome
   }
 
-  /** Saves the files the batch has edited, so tools reading from disk see them. */
-  private async save(playing: Playing): Promise<void> {
+  /** Saves the files the batch has edited, so tools reading from disk see them; returns the ones it couldn't. */
+  private async save(playing: Playing): Promise<{ file: string; error: string }[]> {
+    const unsaved: { file: string; error: string }[] = []
     for (const file of playing.touched) {
       try {
         await this.stage.editor.save(file)
-      } catch {
-        // Saving is best effort; the buffer is still the truth.
+      } catch (e) {
+        unsaved.push({ file: this.displayPath(file), error: e instanceof Error ? e.message : String(e) })
       }
     }
+    return unsaved
   }
 
   private clearPoint(): void {
